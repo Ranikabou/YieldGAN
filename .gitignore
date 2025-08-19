@@ -180,19 +180,20 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-# Project specific
+# Project specific - only exclude generated/temporary files, not source code
 checkpoints/
 results/
-evaluation/
-training/
 synthetic_data/
-models/
+reports/
+ENHANCED_PLOTS_*/
+PDF_REPORT_*/
+FINAL_REPORT_*/
+
+# Generated images and data files (but keep source code)
 *.png
 *.jpg
 *.jpeg
 *.gif
 *.pdf
-reports/
-ENHANCED_PLOTS_*/
-PDF_REPORT_*/
-FINAL_REPORT_*/ 
+*.parquet
+*.npy 

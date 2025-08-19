@@ -70,4 +70,4 @@ The GAN consists of:
 
 ## License
 
-MIT License 
+MIT License

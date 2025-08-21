@@ -21,6 +21,7 @@ import queue
 import subprocess
 import sys
 from pathlib import Path
+import re
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -69,6 +70,18 @@ st.markdown("""
     .sidebar .sidebar-content {
         background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
     }
+    .log-entry {
+        background-color: #f0f2f6;
+        padding: 8px;
+        margin: 4px 0;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+    }
+    .log-info { border-left: 4px solid #17a2b8; }
+    .log-warning { border-left: 4px solid #ffc107; }
+    .log-error { border-left: 4px solid #dc3545; }
+    .log-success { border-left: 4px solid #28a745; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -78,6 +91,11 @@ class GANDashboard:
         self.training_status = "stopped"
         self.training_process = None
         self.log_queue = queue.Queue()
+        self.training_logs = []
+        self.current_epoch = 0
+        self.total_epochs = 50
+        self.generator_losses = []
+        self.discriminator_losses = []
         
     def load_config(self):
         """Load GAN configuration file."""
@@ -85,8 +103,12 @@ class GANDashboard:
             with open('config/gan_config.yaml', 'r') as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            st.error("Configuration file not found. Please ensure config/gan_config.yaml exists.")
-            return {}
+            try:
+                with open('config/csv_config.yaml', 'r') as f:
+                    return yaml.safe_load(f)
+            except FileNotFoundError:
+                st.error("No configuration file found. Please ensure config/gan_config.yaml or config/csv_config.yaml exists.")
+                return {}
     
     def get_data_info(self):
         """Get information about available data files."""
@@ -137,16 +159,25 @@ class GANDashboard:
         
         return results_info
     
-    def start_training(self, start_date, end_date, config_path):
+    def start_training(self, start_date, end_date, config_path, use_csv=False):
         """Start GAN training process."""
         try:
-            cmd = [
-                sys.executable, "train_gan.py",
-                "--start-date", start_date,
-                "--end-date", end_date,
-                "--config", config_path
-            ]
+            if use_csv:
+                cmd = [
+                    sys.executable, "train_gan_csv.py",
+                    "--config", config_path
+                ]
+            else:
+                cmd = [
+                    sys.executable, "train_gan.py",
+                    "--start-date", start_date,
+                    "--end-date", end_date,
+                    "--config", config_path
+                ]
             
+            st.info(f"Starting training with command: {' '.join(cmd)}")
+            
+            # Start the training process
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -156,6 +187,11 @@ class GANDashboard:
             )
             
             self.training_status = "running"
+            self.training_logs = []  # Clear previous logs
+            self.generator_losses = []
+            self.discriminator_losses = []
+            self.current_epoch = 0
+            
             st.success("Training started successfully!")
             
             # Start log monitoring in background
@@ -163,6 +199,7 @@ class GANDashboard:
             
         except Exception as e:
             st.error(f"Failed to start training: {e}")
+            self.training_status = "stopped"
     
     def stop_training(self):
         """Stop GAN training process."""
@@ -174,11 +211,46 @@ class GANDashboard:
     def monitor_training_logs(self):
         """Monitor training logs in background."""
         if self.training_process:
-            for line in iter(self.training_process.stdout.readline, ''):
-                if line:
-                    self.log_queue.put(line.strip())
-                    if self.training_process.poll() is not None:
-                        break
+            try:
+                for line in iter(self.training_process.stdout.readline, ''):
+                    if line:
+                        line = line.strip()
+                        self.log_queue.put(line)
+                        self.training_logs.append(line)
+                        
+                        # Parse training progress
+                        self.parse_training_progress(line)
+                        
+                        if self.training_process.poll() is not None:
+                            break
+                            
+            except Exception as e:
+                st.error(f"Error monitoring training: {e}")
+    
+    def parse_training_progress(self, log_line):
+        """Parse training progress from log lines."""
+        # Parse epoch information
+        epoch_match = re.search(r'epoch\s+(\d+)/(\d+)', log_line.lower())
+        if epoch_match:
+            self.current_epoch = int(epoch_match.group(1))
+            self.total_epochs = int(epoch_match.group(2))
+        
+        # Parse loss information
+        gen_loss_match = re.search(r'generator.*loss.*?([\d.]+)', log_line.lower())
+        if gen_loss_match:
+            try:
+                loss = float(gen_loss_match.group(1))
+                self.generator_losses.append(loss)
+            except:
+                pass
+        
+        disc_loss_match = re.search(r'discriminator.*loss.*?([\d.]+)', log_line.lower())
+        if disc_loss_match:
+            try:
+                loss = float(disc_loss_match.group(1))
+                self.discriminator_losses.append(loss)
+            except:
+                pass
     
     def get_training_logs(self):
         """Get recent training logs."""
@@ -255,31 +327,60 @@ class GANDashboard:
     
     def create_training_progress(self):
         """Create training progress visualization."""
-        # This would typically read from actual training logs
-        # For now, creating a sample progress chart
+        if not self.generator_losses and not self.discriminator_losses:
+            # No real data yet, show placeholder
+            epochs = list(range(1, 51))
+            generator_loss = [np.random.uniform(0.5, 2.0) for _ in epochs]
+            discriminator_loss = [np.random.uniform(0.3, 1.5) for _ in epochs]
+            
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=epochs, y=generator_loss,
+                mode='lines+markers',
+                name='Generator Loss (Sample)',
+                line=dict(color='red', width=2, dash='dot')
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=epochs, y=discriminator_loss,
+                mode='lines+markers',
+                name='Discriminator Loss (Sample)',
+                line=dict(color='blue', width=2, dash='dot')
+            ))
+            
+            fig.update_layout(
+                title="Training Progress (Sample Data - Start Training to See Real Data)",
+                xaxis_title="Epoch",
+                yaxis_title="Loss",
+                height=400
+            )
+            
+            return fig
         
-        epochs = list(range(1, 51))
-        generator_loss = [np.random.uniform(0.5, 2.0) for _ in epochs]
-        discriminator_loss = [np.random.uniform(0.3, 1.5) for _ in epochs]
+        # Show real training data
+        epochs = list(range(1, len(self.generator_losses) + 1))
         
         fig = go.Figure()
         
-        fig.add_trace(go.Scatter(
-            x=epochs, y=generator_loss,
-            mode='lines+markers',
-            name='Generator Loss',
-            line=dict(color='red', width=2)
-        ))
+        if self.generator_losses:
+            fig.add_trace(go.Scatter(
+                x=epochs, y=self.generator_losses,
+                mode='lines+markers',
+                name='Generator Loss (Real)',
+                line=dict(color='red', width=3)
+            ))
         
-        fig.add_trace(go.Scatter(
-            x=epochs, y=discriminator_loss,
-            mode='lines+markers',
-            name='Discriminator Loss',
-            line=dict(color='blue', width=2)
-        ))
+        if self.discriminator_losses:
+            fig.add_trace(go.Scatter(
+                x=epochs, y=self.discriminator_losses,
+                mode='lines+markers',
+                name='Discriminator Loss (Real)',
+                line=dict(color='blue', width=3)
+            ))
         
         fig.update_layout(
-            title="Training Progress",
+            title="Training Progress (Real Data)",
             xaxis_title="Epoch",
             yaxis_title="Loss",
             height=400
@@ -332,26 +433,42 @@ def main():
     # Training controls
     st.sidebar.markdown("### 🚀 Training Controls")
     
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        start_date = st.date_input("Start Date", value=datetime(2022, 1, 1))
-    with col2:
-        end_date = st.date_input("End Date", value=datetime(2024, 1, 1))
+    # Data source selection
+    use_csv = st.sidebar.checkbox("Use CSV Data Source", value=False)
     
-    config_path = st.sidebar.selectbox(
-        "Configuration File",
-        ["config/gan_config.yaml", "config/custom_config.yaml"],
-        index=0
-    )
+    if use_csv:
+        config_path = st.sidebar.selectbox(
+            "CSV Configuration File",
+            ["config/csv_config.yaml"],
+            index=0
+        )
+        st.sidebar.info("📁 CSV Mode: Will load data from data/csv/ directory")
+    else:
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", value=datetime(2022, 1, 1))
+        with col2:
+            end_date = st.date_input("End Date", value=datetime(2024, 1, 1))
+        
+        config_path = st.sidebar.selectbox(
+            "Configuration File",
+            ["config/gan_config.yaml", "config/csv_config.yaml"],
+            index=0
+        )
+        st.sidebar.info("🌐 API Mode: Will fetch data from APIs")
     
     col1, col2 = st.sidebar.columns(2)
     with col1:
         if st.button("▶️ Start Training", type="primary"):
-            dashboard.start_training(
-                start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-                config_path
-            )
+            if use_csv:
+                dashboard.start_training(None, None, config_path, use_csv=True)
+            else:
+                dashboard.start_training(
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d"),
+                    config_path,
+                    use_csv=False
+                )
     
     with col2:
         if st.button("⏹️ Stop Training"):
@@ -361,6 +478,14 @@ def main():
     status_color = "status-running" if dashboard.training_status == "running" else "status-stopped"
     st.sidebar.markdown(f'<div class="{status_color}">Status: {dashboard.training_status.upper()}</div>', 
                         unsafe_allow_html=True)
+    
+    # Training progress
+    if dashboard.training_status == "running":
+        st.sidebar.markdown("### 📈 Training Progress")
+        if dashboard.total_epochs > 0:
+            progress = dashboard.current_epoch / dashboard.total_epochs
+            st.sidebar.progress(progress)
+            st.sidebar.text(f"Epoch: {dashboard.current_epoch}/{dashboard.total_epochs}")
     
     # Main content area
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -400,11 +525,33 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Recent activity
-        st.markdown("## 🔄 Recent Activity")
-        logs = dashboard.get_training_logs()
-        if logs:
-            for log in logs[-10:]:  # Show last 10 logs
-                st.text(log)
+        st.markdown("## �� Recent Activity")
+        
+        # Get new logs
+        new_logs = dashboard.get_training_logs()
+        if new_logs:
+            for log in new_logs[-10:]:  # Show last 10 logs
+                log_class = "log-info"
+                if "error" in log.lower():
+                    log_class = "log-error"
+                elif "warning" in log.lower():
+                    log_class = "log-warning"
+                elif "success" in log.lower() or "completed" in log.lower():
+                    log_class = "log-success"
+                
+                st.markdown(f'<div class="log-entry {log_class}">{log}</div>', unsafe_allow_html=True)
+        elif dashboard.training_logs:
+            # Show stored logs
+            for log in dashboard.training_logs[-10:]:
+                log_class = "log-info"
+                if "error" in log.lower():
+                    log_class = "log-error"
+                elif "warning" in log.lower():
+                    log_class = "log-warning"
+                elif "success" in log.lower() or "completed" in log.lower():
+                    log_class = "log-success"
+                
+                st.markdown(f'<div class="log-entry {log_class}">{log}</div>', unsafe_allow_html=True)
         else:
             st.info("No recent activity. Start training to see logs.")
         
@@ -459,14 +606,10 @@ def main():
             st.success("Training is currently running...")
             
             # Real-time progress
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Simulate progress (in real implementation, this would read from logs)
-            for i in range(100):
-                time.sleep(0.1)
-                progress_bar.progress(i + 1)
-                status_text.text(f"Training progress: {i + 1}%")
+            if dashboard.total_epochs > 0:
+                progress_bar = st.progress(dashboard.current_epoch / dashboard.total_epochs)
+                status_text = st.empty()
+                status_text.text(f"Training progress: Epoch {dashboard.current_epoch}/{dashboard.total_epochs}")
         
         # Training progress chart
         st.markdown("### 📈 Training Losses")
@@ -475,12 +618,24 @@ def main():
         
         # Training logs
         st.markdown("### 📝 Training Logs")
-        logs = dashboard.get_training_logs()
-        if logs:
-            log_text = "\n".join(logs[-20:])  # Show last 20 logs
-            st.text_area("Recent Logs", log_text, height=200)
+        if dashboard.training_logs:
+            # Show all logs with better formatting
+            log_container = st.container()
+            with log_container:
+                for i, log in enumerate(dashboard.training_logs[-50:]):  # Show last 50 logs
+                    log_class = "log-info"
+                    if "error" in log.lower():
+                        log_class = "log-error"
+                    elif "warning" in log.lower():
+                        log_class = "log-warning"
+                    elif "success" in log.lower() or "completed" in log.lower():
+                        log_class = "log-success"
+                    elif "epoch" in log.lower():
+                        log_class = "log-success"
+                    
+                    st.markdown(f'<div class="log-entry {log_class}">{log}</div>', unsafe_allow_html=True)
         else:
-            st.info("No training logs available.")
+            st.info("No training logs available. Start training to see logs.")
     
     with tab4:
         st.markdown("## 📊 Results & Evaluation")

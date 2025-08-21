@@ -97,6 +97,14 @@ class GANDashboard:
         self.generator_losses = []
         self.discriminator_losses = []
         
+        # Create logs directory
+        os.makedirs('logs', exist_ok=True)
+        self.log_file = 'logs/training.log'
+        self.process_file = 'logs/training_process.pid'
+        
+        # Try to restore training status from file
+        self.restore_training_status()
+    
     def load_config(self):
         """Load GAN configuration file."""
         try:
@@ -177,7 +185,13 @@ class GANDashboard:
             
             st.info(f"Starting training with command: {' '.join(cmd)}")
             
-            # Start the training process
+            # Start the training process with output redirected to log file
+            with open(self.log_file, 'a') as log_f:
+                log_f.write(f"\n{'='*50}\n")
+                log_f.write(f"Training started at {datetime.now()}\n")
+                log_f.write(f"Command: {' '.join(cmd)}\n")
+                log_f.write(f"{'='*50}\n")
+            
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -185,6 +199,9 @@ class GANDashboard:
                 universal_newlines=True,
                 bufsize=1
             )
+            
+            # Save process PID for restoration
+            self.save_process_pid(self.training_process.pid)
             
             self.training_status = "running"
             self.training_logs = []  # Clear previous logs
@@ -206,7 +223,31 @@ class GANDashboard:
         if self.training_process:
             self.training_process.terminate()
             self.training_status = "stopped"
+            self.cleanup_process_files()
             st.warning("Training stopped.")
+    
+    def is_training_running(self):
+        """Check if training process is still running."""
+        if self.training_process:
+            return self.training_process.poll() is None
+        return False
+    
+    def refresh_training_status(self):
+        """Refresh training status from process and log files."""
+        if self.training_status == "running":
+            if not self.is_training_running():
+                self.training_status = "stopped"
+                self.cleanup_process_files()
+                st.sidebar.warning("Training process has stopped.")
+            else:
+                # Read latest logs from file
+                latest_logs = self.read_logs_from_file()
+                if latest_logs and len(latest_logs) > len(self.training_logs):
+                    # New logs available, update
+                    new_logs = latest_logs[len(self.training_logs):]
+                    for log in new_logs:
+                        self.parse_training_progress(log)
+                    self.training_logs = latest_logs
     
     def monitor_training_logs(self):
         """Monitor training logs in background."""
@@ -217,6 +258,9 @@ class GANDashboard:
                         line = line.strip()
                         self.log_queue.put(line)
                         self.training_logs.append(line)
+                        
+                        # Save log to file for persistence
+                        self.save_log_to_file(line)
                         
                         # Parse training progress
                         self.parse_training_progress(line)
@@ -316,10 +360,19 @@ class GANDashboard:
             print(f"DEBUG: Discriminator losses: {len(self.discriminator_losses)}")
     
     def get_training_logs(self):
-        """Get recent training logs."""
+        """Get recent training logs from both memory and file."""
+        # Get new logs from queue
         logs = []
         while not self.log_queue.empty():
             logs.append(self.log_queue.get_nowait())
+        
+        # If no new logs, try to read from file
+        if not logs and not self.training_logs:
+            self.training_logs = self.read_logs_from_file()
+            # Parse progress from file logs
+            for log in self.training_logs:
+                self.parse_training_progress(log)
+        
         return logs
     
     def create_data_visualization(self):
@@ -483,6 +536,71 @@ class GANDashboard:
         
         return fig
 
+    def restore_training_status(self):
+        """Attempt to restore training status from log files."""
+        if os.path.exists(self.process_file):
+            try:
+                with open(self.process_file, 'r') as f:
+                    pid = int(f.read())
+                    # Check if process is running
+                    if subprocess.Popen.from_pid(pid):
+                        self.training_status = "running"
+                        st.sidebar.success("Training process restored from log file.")
+                        # Attempt to read logs from the log file
+                        if os.path.exists(self.log_file):
+                            with open(self.log_file, 'r') as log_f:
+                                self.training_logs = [line.strip() for line in log_f.readlines()]
+                                # Attempt to parse the last log line for progress
+                                if self.training_logs:
+                                    self.parse_training_progress(self.training_logs[-1])
+                                    st.sidebar.text(f"Last parsed epoch: {self.current_epoch}/{self.total_epochs}")
+                                    st.sidebar.text(f"Last parsed loss: Gen={self.generator_losses[-1] if self.generator_losses else 'N/A'}, Disc={self.discriminator_losses[-1] if self.discriminator_losses else 'N/A'}")
+                                else:
+                                    st.sidebar.warning("No logs found in log file to restore progress.")
+                        else:
+                            st.sidebar.warning("Log file not found to restore progress.")
+                    else:
+                        st.sidebar.warning(f"Process with PID {pid} not found. Training status cannot be restored.")
+                        os.remove(self.process_file) # Clean up if process is gone
+                os.remove(self.process_file) # Clean up the process file
+            except Exception as e:
+                st.sidebar.warning(f"Error restoring training status from log file: {e}")
+                os.remove(self.process_file) # Clean up the process file on error
+
+    def save_log_to_file(self, log_line):
+        """Save log line to file for persistence."""
+        try:
+            with open(self.log_file, 'a') as f:
+                f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {log_line}\n")
+        except Exception as e:
+            print(f"Error saving log to file: {e}")
+    
+    def read_logs_from_file(self):
+        """Read logs from file."""
+        try:
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r') as f:
+                    return [line.strip() for line in f.readlines()]
+        except Exception as e:
+            print(f"Error reading logs from file: {e}")
+        return []
+    
+    def save_process_pid(self, pid):
+        """Save process PID to file for restoration."""
+        try:
+            with open(self.process_file, 'w') as f:
+                f.write(str(pid))
+        except Exception as e:
+            print(f"Error saving process PID: {e}")
+    
+    def cleanup_process_files(self):
+        """Clean up process tracking files."""
+        try:
+            if os.path.exists(self.process_file):
+                os.remove(self.process_file)
+        except Exception as e:
+            print(f"Error cleaning up process files: {e}")
+
 def main():
     st.markdown('<h1 class="main-header">📊 Treasury GAN Training Dashboard</h1>', 
                 unsafe_allow_html=True)
@@ -536,6 +654,11 @@ def main():
     with col2:
         if st.button("⏹️ Stop Training"):
             dashboard.stop_training()
+    
+    # Add refresh button
+    if st.sidebar.button("🔄 Refresh Status"):
+        dashboard.refresh_training_status()
+        st.sidebar.success("Status refreshed!")
     
     # Status indicator
     status_color = "status-running" if dashboard.training_status == "running" else "status-stopped"
@@ -693,6 +816,18 @@ def main():
         
         # Training logs
         st.markdown("### 📝 Training Logs")
+        
+        # Show log file info
+        if os.path.exists(dashboard.log_file):
+            log_size = os.path.getsize(dashboard.log_file) / 1024  # KB
+            st.info(f"📁 Log file: {dashboard.log_file} ({log_size:.1f} KB)")
+            
+            # Option to view raw log file
+            if st.checkbox("Show raw log file contents"):
+                with open(dashboard.log_file, 'r') as f:
+                    log_contents = f.read()
+                st.text_area("Raw Log File", log_contents, height=300)
+        
         if dashboard.training_logs:
             # Show all logs with better formatting
             log_container = st.container()

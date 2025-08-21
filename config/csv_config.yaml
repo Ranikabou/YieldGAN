@@ -1,0 +1,103 @@
+# CSV Data Source Configuration for Treasury GAN
+
+# Data Source Configuration
+data_source:
+  type: "csv"  # Changed from "api" to "csv"
+  csv_directory: "data/csv"  # Directory containing your CSV files
+  file_patterns:
+    treasury: "*treasury*.csv"  # Pattern for treasury yield files
+    order_book: "*order_book*.csv"  # Pattern for order book files
+    features: "*features*.csv"  # Pattern for feature files
+  
+  # CSV File Structure
+  csv_structure:
+    treasury:
+      date_column: "date"  # Your date column name
+      yield_columns: ["2Y", "5Y", "10Y", "30Y", "SOFR"]  # Your yield column names
+      required_columns: ["date", "2Y", "5Y", "10Y", "10Y", "30Y", "SOFR"]
+    
+    order_book:
+      timestamp_column: "timestamp"  # Your timestamp column name
+      bid_columns: ["bid_price", "bid_size"]  # Your bid column names
+      ask_columns: ["ask_price", "ask_size"]  # Your ask column names
+      level_column: "level"  # Your level column name
+      instrument_column: "instrument"  # Your instrument column name
+      required_columns: ["timestamp", "instrument", "level", "bid_price", "bid_size", "ask_price", "ask_size"]
+    
+    features:
+      date_column: "date"  # Your date column name
+      feature_columns: ["feature_1", "feature_2", "feature_3"]  # Your feature column names
+      required_columns: ["date", "feature_1", "feature_2", "feature_3"]
+
+# Data Processing Configuration
+data_processing:
+  sequence_length: 100  # Length of sequences for GAN training
+  train_split: 0.8
+  validation_split: 0.1
+  test_split: 0.1
+  
+  # Data cleaning
+  handle_missing: "forward_fill"  # Options: "forward_fill", "backward_fill", "interpolate", "drop"
+  normalize_data: true
+  normalization_method: "standard"  # Options: "standard", "minmax", "robust"
+  
+  # Feature engineering
+  calculate_returns: true
+  calculate_volatility: true
+  volatility_window: 20
+  add_technical_indicators: true
+
+# GAN Model Configuration
+model:
+  generator:
+    latent_dim: 100
+    hidden_dims: [256, 512, 1024, 512, 256]
+    dropout: 0.3
+    activation: "leaky_relu"
+    
+  discriminator:
+    hidden_dims: [256, 512, 1024, 512, 256]
+    dropout: 0.3
+    activation: "leaky_relu"
+
+# Training Configuration
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate_generator: 0.0002
+  learning_rate_discriminator: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  
+  # GAN specific parameters
+  critic_iterations: 5
+  lambda_gp: 10
+  
+  # Early stopping
+  patience: 20
+  min_delta: 0.001
+
+# Loss weights
+loss_weights:
+  generator_loss: 1.0
+  discriminator_loss: 1.0
+  feature_matching: 0.1
+
+# Data augmentation
+augmentation:
+  noise_factor: 0.01
+  time_shift: 0.05
+
+# Output Configuration
+output:
+  save_processed_csv: true
+  save_sequences: true
+  save_checkpoints: true
+  save_results: true
+  output_directory: "data/processed"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  save_logs: true
+  log_file: "logs/csv_processing.log" 

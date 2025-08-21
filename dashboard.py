@@ -82,6 +82,52 @@ st.markdown("""
     .log-warning { border-left: 4px solid #ffc107; }
     .log-error { border-left: 4px solid #dc3545; }
     .log-success { border-left: 4px solid #28a745; }
+    
+    /* Recent Activity styling - much more readable */
+    .recent-activity {
+        background-color: #ffffff;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .recent-activity h3 {
+        color: #2c3e50;
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 8px;
+    }
+    .recent-activity-item {
+        background-color: #f8f9fa;
+        border-left: 4px solid #3498db;
+        padding: 12px;
+        margin: 8px 0;
+        border-radius: 4px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+        color: #2c3e50;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .recent-activity-item:hover {
+        background-color: #e3f2fd;
+        transform: translateX(2px);
+        transition: all 0.2s ease;
+    }
+    .recent-activity-timestamp {
+        color: #7f8c8d;
+        font-size: 12px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .recent-activity-message {
+        color: #2c3e50;
+        font-size: 14px;
+        font-weight: 500;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -775,12 +821,25 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         
         # Recent activity
-        st.markdown("## �� Recent Activity")
+        st.markdown("## 📝 Recent Activity")
         
         # Get new logs
         new_logs = dashboard.get_training_logs()
         if new_logs:
+            st.markdown('<div class="recent-activity">', unsafe_allow_html=True)
+            st.markdown('<h3>🔄 Live Training Updates</h3>', unsafe_allow_html=True)
+            
             for log in new_logs[-10:]:  # Show last 10 logs
+                # Extract timestamp if present
+                timestamp = ""
+                message = log
+                if " - " in log:
+                    parts = log.split(" - ", 1)
+                    if len(parts) == 2:
+                        timestamp = parts[0]
+                        message = parts[1]
+                
+                # Determine log type for styling
                 log_class = "log-info"
                 if "error" in log.lower():
                     log_class = "log-error"
@@ -788,11 +847,41 @@ def main():
                     log_class = "log-warning"
                 elif "success" in log.lower() or "completed" in log.lower():
                     log_class = "log-success"
+                elif "epoch" in log.lower():
+                    log_class = "log-success"
                 
-                st.markdown(f'<div class="log-entry {log_class}">{log}</div>', unsafe_allow_html=True)
+                # Display with better formatting
+                if timestamp:
+                    st.markdown(f'''
+                    <div class="recent-activity-item">
+                        <div class="recent-activity-timestamp">🕐 {timestamp}</div>
+                        <div class="recent-activity-message">{message}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'''
+                    <div class="recent-activity-item">
+                        <div class="recent-activity-message">{message}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         elif dashboard.training_logs:
-            # Show stored logs
+            # Show stored logs with better formatting
+            st.markdown('<div class="recent-activity">', unsafe_allow_html=True)
+            st.markdown('<h3>📋 Training Log History</h3>', unsafe_allow_html=True)
+            
             for log in dashboard.training_logs[-10:]:
+                # Extract timestamp if present
+                timestamp = ""
+                message = log
+                if " - " in log:
+                    parts = log.split(" - ", 1)
+                    if len(parts) == 2:
+                        timestamp = parts[0]
+                        message = parts[1]
+                
+                # Determine log type for styling
                 log_class = "log-info"
                 if "error" in log.lower():
                     log_class = "log-error"
@@ -800,8 +889,25 @@ def main():
                     log_class = "log-warning"
                 elif "success" in log.lower() or "completed" in log.lower():
                     log_class = "log-success"
+                elif "epoch" in log.lower():
+                    log_class = "log-success"
                 
-                st.markdown(f'<div class="log-entry {log_class}">{log}</div>', unsafe_allow_html=True)
+                # Display with better formatting
+                if timestamp:
+                    st.markdown(f'''
+                    <div class="recent-activity-item">
+                        <div class="recent-activity-timestamp">🕐 {timestamp}</div>
+                        <div class="recent-activity-message">{message}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'''
+                    <div class="recent-activity-item">
+                        <div class="recent-activity-message">{message}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("No recent activity. Start training to see logs.")
         

@@ -229,28 +229,91 @@ class GANDashboard:
     
     def parse_training_progress(self, log_line):
         """Parse training progress from log lines."""
-        # Parse epoch information
-        epoch_match = re.search(r'epoch\s+(\d+)/(\d+)', log_line.lower())
-        if epoch_match:
-            self.current_epoch = int(epoch_match.group(1))
-            self.total_epochs = int(epoch_match.group(2))
+        # Parse epoch information - multiple patterns
+        epoch_patterns = [
+            r'epoch\s+(\d+)/(\d+)',
+            r'epoch\s+(\d+)',
+            r'epoch\s+(\d+)\s+of\s+(\d+)',
+            r'training\s+epoch\s+(\d+)',
+            r'epoch\s+(\d+)\s*/\s*(\d+)',
+            r'epoch\s+(\d+):\s*100%',  # Progress bar format
+            r'epoch\s+(\d+)/\d+:\s*100%'  # Progress bar with total
+        ]
         
-        # Parse loss information
-        gen_loss_match = re.search(r'generator.*loss.*?([\d.]+)', log_line.lower())
-        if gen_loss_match:
-            try:
-                loss = float(gen_loss_match.group(1))
-                self.generator_losses.append(loss)
-            except:
-                pass
+        for pattern in epoch_patterns:
+            epoch_match = re.search(pattern, log_line.lower())
+            if epoch_match:
+                if len(epoch_match.groups()) == 2:
+                    self.current_epoch = int(epoch_match.group(1))
+                    self.total_epochs = int(epoch_match.group(2))
+                else:
+                    self.current_epoch = int(epoch_match.group(1))
+                break
         
-        disc_loss_match = re.search(r'discriminator.*loss.*?([\d.]+)', log_line.lower())
-        if disc_loss_match:
-            try:
-                loss = float(disc_loss_match.group(1))
-                self.discriminator_losses.append(loss)
-            except:
-                pass
+        # Parse loss information - multiple patterns including the actual log format
+        gen_loss_patterns = [
+            r'generator.*loss.*?([\d.]+)',
+            r'gen.*loss.*?([\d.]+)',
+            r'g_loss.*?([\d.]+)',
+            r'generator_loss.*?([\d.]+)',
+            r'generator loss:\s*([\d.]+)',  # Actual format from logs
+            r'val generator loss:\s*([\d.]+)'  # Validation loss
+        ]
+        
+        for pattern in gen_loss_patterns:
+            gen_loss_match = re.search(pattern, log_line.lower())
+            if gen_loss_match:
+                try:
+                    loss = float(gen_loss_match.group(1))
+                    self.generator_losses.append(loss)
+                    break
+                except:
+                    pass
+        
+        disc_loss_patterns = [
+            r'discriminator.*loss.*?([\d.]+)',
+            r'disc.*loss.*?([\d.]+)',
+            r'd_loss.*?([\d.]+)',
+            r'discriminator_loss.*?([\d.]+)',
+            r'discriminator loss:\s*([\d.]+)',  # Actual format from logs
+            r'val discriminator loss:\s*([\d.]+)'  # Validation loss
+        ]
+        
+        for pattern in disc_loss_patterns:
+            disc_loss_match = re.search(pattern, log_line.lower())
+            if disc_loss_match:
+                try:
+                    loss = float(disc_loss_match.group(1))
+                    self.discriminator_losses.append(loss)
+                    break
+                except:
+                    pass
+        
+        # Parse other training indicators
+        if 'training' in log_line.lower() and 'started' in log_line.lower():
+            st.sidebar.success("Training process started!")
+        
+        if 'completed' in log_line.lower() or 'finished' in log_line.lower():
+            st.sidebar.success("Training completed!")
+            self.training_status = "completed"
+        
+        if 'error' in log_line.lower() or 'exception' in log_line.lower():
+            st.sidebar.error(f"Training error: {log_line}")
+        
+        # Parse checkpoint saves
+        if 'checkpoint saved' in log_line.lower():
+            st.sidebar.success("Model checkpoint saved!")
+        
+        # Parse progress bar completion
+        if '100%' in log_line and 'epoch' in log_line.lower():
+            st.sidebar.success(f"Epoch {self.current_epoch} completed!")
+        
+        # Debug: log what we're parsing
+        if 'epoch' in log_line.lower() or 'loss' in log_line.lower():
+            print(f"DEBUG: Parsing line: {log_line}")
+            print(f"DEBUG: Current epoch: {self.current_epoch}, Total: {self.total_epochs}")
+            print(f"DEBUG: Generator losses: {len(self.generator_losses)}")
+            print(f"DEBUG: Discriminator losses: {len(self.discriminator_losses)}")
     
     def get_training_logs(self):
         """Get recent training logs."""
@@ -486,6 +549,18 @@ def main():
             progress = dashboard.current_epoch / dashboard.total_epochs
             st.sidebar.progress(progress)
             st.sidebar.text(f"Epoch: {dashboard.current_epoch}/{dashboard.total_epochs}")
+            
+            # Debug information
+            st.sidebar.markdown("### 🔍 Debug Info")
+            st.sidebar.text(f"Logs captured: {len(dashboard.training_logs)}")
+            st.sidebar.text(f"Gen losses: {len(dashboard.generator_losses)}")
+            st.sidebar.text(f"Disc losses: {len(dashboard.discriminator_losses)}")
+            
+            # Show last few log lines in sidebar
+            if dashboard.training_logs:
+                st.sidebar.markdown("#### Last Log Lines:")
+                for log in dashboard.training_logs[-3:]:
+                    st.sidebar.text(log[:50] + "..." if len(log) > 50 else log)
     
     # Main content area
     tab1, tab2, tab3, tab4, tab5 = st.tabs([

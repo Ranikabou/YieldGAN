@@ -102,6 +102,10 @@ class GANDashboard:
         self.log_file = 'logs/training.log'
         self.process_file = 'logs/training_process.pid'
         
+        # For sidebar display - only show recent messages
+        self.sidebar_messages = []
+        self.max_sidebar_messages = 5  # Only show last 5 messages
+        
         # Try to restore training status from file
         self.restore_training_status()
     
@@ -335,22 +339,22 @@ class GANDashboard:
         
         # Parse other training indicators
         if 'training' in log_line.lower() and 'started' in log_line.lower():
-            st.sidebar.success("Training process started!")
+            self.add_sidebar_message("Training process started!")
         
         if 'completed' in log_line.lower() or 'finished' in log_line.lower():
-            st.sidebar.success("Training completed!")
+            self.add_sidebar_message("Training completed!")
             self.training_status = "completed"
         
         if 'error' in log_line.lower() or 'exception' in log_line.lower():
-            st.sidebar.error(f"Training error: {log_line}")
+            self.add_sidebar_message(f"Training error: {log_line}")
         
         # Parse checkpoint saves
         if 'checkpoint saved' in log_line.lower():
-            st.sidebar.success("Model checkpoint saved!")
+            self.add_sidebar_message("Model checkpoint saved!")
         
         # Parse progress bar completion
         if '100%' in log_line and 'epoch' in log_line.lower():
-            st.sidebar.success(f"Epoch {self.current_epoch} completed!")
+            self.add_sidebar_message(f"Epoch {self.current_epoch} completed!")
         
         # Debug: log what we're parsing
         if 'epoch' in log_line.lower() or 'loss' in log_line.lower():
@@ -601,12 +605,44 @@ class GANDashboard:
         except Exception as e:
             print(f"Error cleaning up process files: {e}")
 
+    def add_sidebar_message(self, message, message_type="info"):
+        """Add a message to the sidebar display, keeping only recent ones."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}"
+        
+        # Add new message
+        self.sidebar_messages.append({
+            "message": formatted_message,
+            "type": message_type,
+            "timestamp": datetime.now()
+        })
+        
+        # Keep only the most recent messages
+        if len(self.sidebar_messages) > self.max_sidebar_messages:
+            self.sidebar_messages = self.sidebar_messages[-self.max_sidebar_messages:]
+    
+    def clear_sidebar_messages(self):
+        """Clear old sidebar messages."""
+        self.sidebar_messages = []
+
 def main():
     st.markdown('<h1 class="main-header">📊 Treasury GAN Training Dashboard</h1>', 
                 unsafe_allow_html=True)
     
     # Initialize dashboard
     dashboard = GANDashboard()
+    
+    # Auto-refresh mechanism using session state
+    if 'last_refresh' not in st.session_state:
+        st.session_state.last_refresh = time.time()
+    
+    # Auto-refresh every 3 seconds when training is running
+    if dashboard.training_status == "running":
+        current_time = time.time()
+        if current_time - st.session_state.last_refresh > 3:
+            st.session_state.last_refresh = current_time
+            # Force a refresh by updating the page
+            st.experimental_rerun()
     
     # Sidebar
     st.sidebar.markdown("## 🎛️ Control Panel")
@@ -660,6 +696,10 @@ def main():
         dashboard.refresh_training_status()
         st.sidebar.success("Status refreshed!")
     
+    # Auto-refresh indicator
+    if dashboard.training_status == "running":
+        st.sidebar.markdown("### ⚡ Auto-refreshing every 3 seconds...")
+    
     # Status indicator
     status_color = "status-running" if dashboard.training_status == "running" else "status-stopped"
     st.sidebar.markdown(f'<div class="{status_color}">Status: {dashboard.training_status.upper()}</div>', 
@@ -672,18 +712,30 @@ def main():
             progress = dashboard.current_epoch / dashboard.total_epochs
             st.sidebar.progress(progress)
             st.sidebar.text(f"Epoch: {dashboard.current_epoch}/{dashboard.total_epochs}")
-            
-            # Debug information
-            st.sidebar.markdown("### 🔍 Debug Info")
-            st.sidebar.text(f"Logs captured: {len(dashboard.training_logs)}")
-            st.sidebar.text(f"Gen losses: {len(dashboard.generator_losses)}")
-            st.sidebar.text(f"Disc losses: {len(dashboard.discriminator_losses)}")
-            
-            # Show last few log lines in sidebar
-            if dashboard.training_logs:
-                st.sidebar.markdown("#### Last Log Lines:")
-                for log in dashboard.training_logs[-3:]:
-                    st.sidebar.text(log[:50] + "..." if len(log) > 50 else log)
+        
+        # Debug information
+        st.sidebar.markdown("### 🔍 Debug Info")
+        st.sidebar.text(f"Logs captured: {len(dashboard.training_logs)}")
+        st.sidebar.text(f"Gen losses: {len(dashboard.generator_losses)}")
+        st.sidebar.text(f"Disc losses: {len(dashboard.discriminator_losses)}")
+        
+        # Show recent sidebar messages (replacing old with new)
+        if dashboard.sidebar_messages:
+            st.sidebar.markdown("#### 📝 Recent Activity:")
+            for msg in dashboard.sidebar_messages:
+                if msg["type"] == "error":
+                    st.sidebar.error(msg["message"])
+                elif msg["type"] == "warning":
+                    st.sidebar.warning(msg["message"])
+                elif msg["type"] == "success":
+                    st.sidebar.success(msg["message"])
+                else:
+                    st.sidebar.info(msg["message"])
+        
+        # Clear old messages button
+        if st.sidebar.button("🗑️ Clear Messages"):
+            dashboard.clear_sidebar_messages()
+            st.sidebar.success("Messages cleared!")
     
     # Main content area
     tab1, tab2, tab3, tab4, tab5 = st.tabs([

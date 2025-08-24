@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Source Selector Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">Enhanced Data Source Selector Test</h1>
+        
+        <!-- Data Source Selection -->
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h4 class="text-md font-medium text-gray-700 mb-3">📊 Select Training Data Source</h4>
+            
+            <!-- Available Data Sources -->
+            <div class="mb-4">
+                <h5 class="text-sm font-medium text-gray-600 mb-2">Available Data Sources:</h5>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="p-3 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors" onclick="selectDataSource('treasury_orderbook_sample.csv', 'orderbook')">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                            <span class="text-sm font-medium">Treasury Orderbook</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Multi-level order book data</p>
+                    </div>
+                    <div class="p-3 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors" onclick="selectDataSource('sample_timeseries.csv', 'timeseries')">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                            <span class="text-sm font-medium">Yield Curve</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Treasury yield time series</p>
+                    </div>
+                    <div class="p-3 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors" onclick="selectDataSource('sample_orderbook.csv', 'orderbook')">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-3 h-3 bg-purple-500 rounded-full"></div>
+                            <span class="text-sm font-medium">Sample Orderbook</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Generic order book sample</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Selected Data Preview -->
+            <div id="selected-data-preview" class="hidden">
+                <h5 class="text-sm font-medium text-gray-600 mb-2">Selected Data Preview:</h5>
+                <div id="data-preview-content" class="bg-white rounded border border-gray-200 p-3">
+                    <!-- Data preview content will be populated here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status Display -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Status</h3>
+            <div id="status-display" class="text-sm text-gray-600">
+                No data source selected
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data source selection function
+        async function selectDataSource(filename, dataType) {
+            try {
+                // Update visual selection
+                document.querySelectorAll('[onclick^="selectDataSource"]').forEach(el => {
+                    el.classList.remove('border-blue-500', 'bg-blue-50');
+                    el.classList.add('border-gray-200', 'bg-white');
+                });
+                
+                // Highlight selected item
+                event.currentTarget.classList.remove('border-gray-200', 'bg-white');
+                event.currentTarget.classList.add('border-blue-500', 'bg-blue-50');
+                
+                // Update status
+                document.getElementById('status-display').textContent = `Selected: ${filename} (${dataType})`;
+                
+                // Get data preview from the dashboard API
+                const previewResponse = await fetch(`http://localhost:8081/api/preview_csv?filename=${filename}`);
+                const previewResult = await previewResponse.json();
+                
+                if (previewResult.success) {
+                    showSelectedDataPreview(previewResult.data_info, previewResult.plot_data, filename, dataType);
+                } else {
+                    console.error('Error getting preview:', previewResult.error);
+                }
+            } catch (error) {
+                console.error('Error selecting data source:', error);
+                document.getElementById('status-display').textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Show selected data preview in the selector
+        function showSelectedDataPreview(dataInfo, plotData, filename, dataType) {
+            const previewSection = document.getElementById('selected-data-preview');
+            const previewContent = document.getElementById('data-preview-content');
+            
+            // Show the preview section
+            previewSection.classList.remove('hidden');
+            
+            // Create compact preview content
+            let previewHTML = `
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
+                    <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                        <div class="font-medium text-gray-700">📁 File</div>
+                        <div class="text-gray-600 truncate">${filename}</div>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                        <div class="font-medium text-gray-700">📊 Shape</div>
+                        <div class="text-gray-600">${dataInfo.shape[0]} × ${dataInfo.shape[1]}</div>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                        <div class="font-medium text-gray-700">🔍 Type</div>
+                        <div class="text-gray-600">${dataInfo.data_type}</div>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                        <div class="font-medium text-gray-700">📈 Columns</div>
+                        <div class="text-gray-600">${dataInfo.numeric_columns.length} numeric</div>
+                    </div>
+                </div>
+            `;
+            
+            // Add data statistics if available
+            if (dataInfo.summary_stats && Object.keys(dataInfo.summary_stats).length > 0) {
+                const firstNumericCol = dataInfo.numeric_columns[0];
+                if (firstNumericCol && dataInfo.summary_stats[firstNumericCol]) {
+                    const stats = dataInfo.summary_stats[firstNumericCol];
+                    previewHTML += `
+                        <div class="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
+                            <div class="font-medium text-blue-700 text-xs mb-1">📊 Sample Statistics (${firstNumericCol})</div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div><span class="font-medium">Min:</span> ${stats.min ? stats.min.toFixed(4) : 'N/A'}</div>
+                                <div><span class="font-medium">Max:</span> ${stats.max ? stats.max.toFixed(4) : 'N/A'}</div>
+                                <div><span class="font-medium">Mean:</span> ${stats.mean ? stats.mean.toFixed(4) : 'N/A'}</div>
+                                <div><span class="font-medium">Std:</span> ${stats.std ? stats.std.toFixed(4) : 'N/A'}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Add sample data preview (first 3 rows)
+            if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
+                const columns = Object.keys(dataInfo.sample_data[0]);
+                let tableHTML = '<div class="mt-3"><div class="font-medium text-gray-700 mb-2">📋 Sample Data (First 3 rows):</div><div class="overflow-x-auto"><table class="w-full text-xs border-collapse">';
+                
+                // Header
+                tableHTML += '<thead><tr class="bg-gray-200">';
+                columns.forEach(col => {
+                    tableHTML += `<th class="border border-gray-300 px-1 py-1 text-left">${col}</th>`;
+                });
+                tableHTML += '</tr></thead>';
+                
+                // Data rows (first 3 only)
+                tableHTML += '<tbody>';
+                dataInfo.sample_data.slice(0, 3).forEach(row => {
+                    tableHTML += '<tr>';
+                    columns.forEach(col => {
+                        const value = row[col];
+                        const displayValue = typeof value === 'number' ? value.toFixed(3) : value;
+                        tableHTML += `<td class="border border-gray-300 px-1 py-1">${displayValue}</td>`;
+                    });
+                    tableHTML += '</tr>';
+                });
+                tableHTML += '</tbody></table></div></div>';
+                
+                previewHTML += tableHTML;
+            }
+            
+            // Add data type specific information
+            if (dataInfo.data_type === 'multi_level_order_book') {
+                previewHTML += `
+                    <div class="mt-3 p-2 bg-green-50 rounded border border-green-200">
+                        <div class="font-medium text-green-700 text-xs mb-1">🏦 Order Book Structure</div>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div><span class="font-medium">Bid Levels:</span> ${dataInfo.order_book_info.bid_columns.length}</div>
+                            <div><span class="font-medium">Ask Levels:</span> ${dataInfo.order_book_info.ask_columns.length}</div>
+                            <div><span class="font-medium">Price Columns:</span> ${dataInfo.order_book_info.price_columns.length}</div>
+                            <div><span class="font-medium">Size Columns:</span> ${dataInfo.order_book_info.size_columns.length}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            previewContent.innerHTML = previewHTML;
+        }
+    </script>
+</body>
+</html> 

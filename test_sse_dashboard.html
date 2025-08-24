@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Dashboard Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .disconnected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .log { background-color: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 3px; font-family: monospace; font-size: 12px; }
+        .training-data { background-color: #e7f3ff; border: 1px solid #b3d9ff; }
+        .progress-data { background-color: #fff3cd; border: 1px solid #ffeaa7; }
+        .log-data { background-color: #f8f9fa; border: 1px solid #dee2e6; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .start-btn { background-color: #28a745; color: white; }
+        .stop-btn { background-color: #dc3545; color: white; }
+        .test-btn { background-color: #007bff; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 SSE Dashboard Test</h1>
+        <p>This page tests the SSE functionality of the GAN Dashboard to ensure training data flows properly.</p>
+        
+        <div class="section">
+            <h2>🔌 Connection Status</h2>
+            <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+            <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+            <div id="log-status" class="status disconnected">Log Channel: Disconnected</div>
+        </div>
+        
+        <div class="section">
+            <h2>🎮 Test Controls</h2>
+            <button class="start-btn" onclick="startTraining()">Start Training</button>
+            <button class="stop-btn" onclick="stopTraining()">Stop Training</button>
+            <button class="test-btn" onclick="testSSEChannels()">Test SSE Channels</button>
+            <button class="test-btn" onclick="clearLogs()">Clear Logs</button>
+        </div>
+        
+        <div class="section">
+            <h2>🎯 Training Data (SSE)</h2>
+            <div id="training-data" class="log training-data">
+                <div>Waiting for training data...</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Progress Data (SSE)</h2>
+            <div id="progress-data" class="log progress-data">
+                <div>Waiting for progress data...</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📝 Log Data (SSE)</h2>
+            <div id="log-data" class="log log-data">
+                <div>Waiting for log data...</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📈 Raw SSE Messages</h2>
+            <div id="raw-messages" class="log">
+                <div>No messages yet...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // SSE Event Sources
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logEventSource = null;
+        
+        // Message counters
+        let messageCounts = {
+            training: 0,
+            progress: 0,
+            logs: 0
+        };
+        
+        // Connect to SSE channels
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            trainingEventSource = new EventSource('http://localhost:8082/events/training');
+            
+            trainingEventSource.onopen = function() {
+                console.log('🎯 Connected to Training SSE Channel');
+                document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('🎯 Training data received:', data);
+                
+                messageCounts.training++;
+                
+                // Update training data display
+                const trainingData = document.getElementById('training-data');
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log';
+                logEntry.innerHTML = `
+                    <strong>[${messageCounts.training}]</strong> 
+                    <span class="timestamp">${new Date(data.timestamp).toLocaleTimeString()}</span>
+                    <span class="type">${data.type}</span>
+                    <span class="data">${JSON.stringify(data.data, null, 2)}</span>
+                `;
+                trainingData.appendChild(logEntry);
+                
+                // Add to raw messages
+                addRawMessage('Training', data);
+                
+                // Auto-scroll
+                trainingData.scrollTop = trainingData.scrollHeight;
+            };
+            
+            trainingEventSource.onerror = function() {
+                console.error('🎯 Training channel connection error');
+                document.getElementById('training-status').textContent = 'Training Channel: Disconnected';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            progressEventSource = new EventSource('http://localhost:8082/events/progress');
+            
+            progressEventSource.onopen = function() {
+                console.log('📊 Connected to Progress SSE Channel');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('📊 Progress data received:', data);
+                
+                messageCounts.progress++;
+                
+                // Update progress data display
+                const progressData = document.getElementById('progress-data');
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log';
+                logEntry.innerHTML = `
+                    <strong>[${messageCounts.progress}]</strong> 
+                    <span class="timestamp">${new Date(data.timestamp).toLocaleTimeString()}</span>
+                    <span class="type">${data.type}</span>
+                    <span class="data">${JSON.stringify(data.data, null, 2)}</span>
+                `;
+                progressData.appendChild(logEntry);
+                
+                // Add to raw messages
+                addRawMessage('Progress', data);
+                
+                // Auto-scroll
+                progressData.scrollTop = progressData.scrollHeight;
+            };
+            
+            progressEventSource.onerror = function() {
+                console.error('📊 Progress channel connection error');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Disconnected';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+        
+        function connectLogChannel() {
+            if (logEventSource) {
+                logEventSource.close();
+            }
+            
+            logEventSource = new EventSource('http://localhost:8082/events/logs');
+            
+            logEventSource.onopen = function() {
+                console.log('📝 Connected to Log SSE Channel');
+                document.getElementById('log-status').textContent = 'Log Channel: Connected';
+                document.getElementById('log-status').className = 'status connected';
+            };
+            
+            logEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('📝 Log data received:', data);
+                
+                messageCounts.logs++;
+                
+                // Update log data display
+                const logData = document.getElementById('log-data');
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log';
+                logEntry.innerHTML = `
+                    <strong>[${messageCounts.logs}]</strong> 
+                    <span class="timestamp">${new Date(data.timestamp).toLocaleTimeString()}</span>
+                    <span class="type">${data.type}</span>
+                    <span class="data">${JSON.stringify(data.data, null, 2)}</span>
+                `;
+                logData.appendChild(logEntry);
+                
+                // Add to raw messages
+                addRawMessage('Logs', data);
+                
+                // Auto-scroll
+                logData.scrollTop = logData.scrollHeight;
+            };
+            
+            logEventSource.onerror = function() {
+                console.error('📝 Log channel connection error');
+                document.getElementById('log-status').textContent = 'Log Channel: Disconnected';
+                document.getElementById('log-status').className = 'status disconnected';
+            };
+        }
+        
+        function disconnectAllChannels() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+            }
+            if (logEventSource) {
+                logEventSource.close();
+                logEventSource = null;
+            }
+            console.log('🔌 All SSE channels disconnected');
+        }
+        
+        function addRawMessage(channel, data) {
+            const rawMessages = document.getElementById('raw-messages');
+            const messageEntry = document.createElement('div');
+            messageEntry.className = 'log';
+            messageEntry.innerHTML = `
+                <strong>[${channel}]</strong> 
+                <span class="timestamp">${new Date(data.timestamp).toLocaleTimeString()}</span>
+                <span class="type">${data.type}</span>
+                <span class="data">${JSON.stringify(data.data, null, 2)}</span>
+            `;
+            rawMessages.appendChild(messageEntry);
+            
+            // Auto-scroll
+            rawMessages.scrollTop = rawMessages.scrollHeight;
+            
+            // Limit messages to prevent memory issues
+            if (rawMessages.children.length > 100) {
+                rawMessages.removeChild(rawMessages.firstChild);
+            }
+        }
+        
+        async function startTraining() {
+            try {
+                console.log('🚀 Starting training...');
+                const response = await fetch('http://localhost:8082/api/start_training', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        config: 'config/gan_config.yaml',
+                        data_source: 'treasury_orderbook_sample.csv'
+                    })
+                });
+                const result = await response.json();
+                console.log('Training start result:', result);
+                
+                if (result.success) {
+                    addRawMessage('API', {
+                        type: 'training_started',
+                        message: 'Training started successfully',
+                        pid: result.pid,
+                        config: result.config,
+                        data_source: result.data_source
+                    });
+                } else {
+                    addRawMessage('API', {
+                        type: 'training_error',
+                        message: result.error
+                    });
+                }
+            } catch (error) {
+                console.error('Error starting training:', error);
+                addRawMessage('API', {
+                    type: 'training_error',
+                    message: error.message
+                });
+            }
+        }
+        
+        async function stopTraining() {
+            try {
+                console.log('⏹️ Stopping training...');
+                const response = await fetch('http://localhost:8082/api/stop_training', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                console.log('Training stop result:', result);
+                
+                addRawMessage('API', {
+                    type: 'training_stopped',
+                    message: result.message
+                });
+            } catch (error) {
+                console.error('Error stopping training:', error);
+                addRawMessage('API', {
+                    type: 'training_error',
+                    message: error.message
+                });
+            }
+        }
+        
+        function testSSEChannels() {
+            console.log('🧪 Testing SSE channels...');
+            
+            // Test training data endpoint
+            fetch('http://localhost:8082/training_data', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    type: 'test_training_data',
+                    data: {
+                        epoch: 1,
+                        generator_loss: 0.5,
+                        discriminator_loss: 0.8,
+                        real_scores: 0.9,
+                        fake_scores: 0.1
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('Training data test result:', result);
+                addRawMessage('Test', {
+                    type: 'training_data_test',
+                    result: result
+                });
+            })
+            .catch(error => {
+                console.error('Training data test error:', error);
+                addRawMessage('Test', {
+                    type: 'training_data_test_error',
+                    error: error.message
+                });
+            });
+            
+            // Test progress data endpoint
+            fetch('http://localhost:8082/progress_data', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    type: 'test_progress_data',
+                    data: {
+                        epoch: 1,
+                        progress_percent: 25.0
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('Progress data test result:', result);
+                addRawMessage('Test', {
+                    type: 'progress_data_test',
+                    result: result
+                });
+            })
+            .catch(error => {
+                console.error('Progress data test error:', error);
+                addRawMessage('Test', {
+                    type: 'progress_data_test_error',
+                    error: error.message
+                });
+            });
+        }
+        
+        function clearLogs() {
+            document.getElementById('training-data').innerHTML = '<div>Logs cleared...</div>';
+            document.getElementById('progress-data').innerHTML = '<div>Logs cleared...</div>';
+            document.getElementById('log-data').innerHTML = '<div>Logs cleared...</div>';
+            document.getElementById('raw-messages').innerHTML = '<div>Logs cleared...</div>';
+            
+            messageCounts.training = 0;
+            messageCounts.progress = 0;
+            messageCounts.logs = 0;
+        }
+        
+        // Connect to all channels on page load
+        window.addEventListener('load', function() {
+            console.log('🚀 Page loaded, setting up SSE channels');
+            connectTrainingChannel();
+            connectProgressChannel();
+            connectLogChannel();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            disconnectAllChannels();
+        });
+    </script>
+</body>
+</html> 

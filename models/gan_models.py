@@ -345,7 +345,7 @@ def create_gan_models(config: dict, device: torch.device) -> Tuple[nn.Module, nn
         Tuple of (generator, discriminator/critic)
     """
     model_config = config['model']
-    data_config = config['data']
+    data_config = config['data_processing']
     
     # Extract parameters
     latent_dim = model_config['generator']['latent_dim']
@@ -384,7 +384,7 @@ def create_wgan_models(config: dict, device: torch.device) -> Tuple[nn.Module, n
         Tuple of (generator, critic)
     """
     model_config = config['model']
-    data_config = config['data']
+    data_config = config['data_processing']
     
     instrument_count = len(config.get('instruments', ['2Y', '5Y', '10Y', '30Y']))
     # Calculate total features: instruments + spreads + volatility features

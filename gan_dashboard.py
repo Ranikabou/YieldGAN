@@ -21,6 +21,7 @@ import signal
 import psutil
 import re
 import glob
+import socket
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -29,10 +30,24 @@ sys.path.append(str(Path(__file__).parent))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def find_free_port(start_port=8081):
+    """Find a free port starting from start_port."""
+    for port in range(start_port, start_port + 100):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
+        except OSError:
+            continue
+    return None
+
 class GANDashboard:
-    def __init__(self, host='localhost', port=8081):
+    def __init__(self, host='localhost', port=None):
         self.host = host
-        self.port = port
+        self.port = port or find_free_port()
+        if not self.port:
+            raise RuntimeError("No free ports available")
+        
         self.app = web.Application()
         self.runner = None
         
@@ -57,6 +72,8 @@ class GANDashboard:
         
         # Start background tasks
         self.start_background_tasks()
+        
+        logger.info(f"Dashboard initialized on port {self.port}")
     
     def setup_routes(self):
         """Set up web routes."""
@@ -76,6 +93,7 @@ class GANDashboard:
         self.app.router.add_get('/api/models', self.get_models)
         self.app.router.add_post('/api/generate_sample', self.generate_sample)
         self.app.router.add_post('/api/upload_csv', self.upload_csv)
+        self.app.router.add_get('/api/preview_csv', self.preview_csv)
         
         # New endpoints for separate channels like test_separate_channels.py
         self.app.router.add_post('/training_data', self.receive_training_data)
@@ -97,15 +115,25 @@ class GANDashboard:
                     if self.training_status == "running":
                         self.training_status = "completed"
                         await self.broadcast_training_update({
-                            "type": "training_completed",
+                            "type": "training_complete",
+                            "data": {
+                                "status": "completed",
+                                "message": "Training completed"
+                            },
                             "timestamp": datetime.now().isoformat()
                         })
                 await asyncio.sleep(5)
         
-        # Start log file monitoring
-        asyncio.create_task(self.start_log_monitoring())
-        
         asyncio.create_task(monitor_training())
+        
+        # Start log monitoring
+        async def monitor_logs():
+            while True:
+                if self.log_monitoring_active:
+                    await self.check_log_files()
+                await asyncio.sleep(2)
+        
+        asyncio.create_task(monitor_logs())
     
     async def start_log_monitoring(self):
         """Start monitoring training log files for real-time updates."""
@@ -335,123 +363,169 @@ class GANDashboard:
             </nav>
             
             <div class="max-w-7xl mx-auto px-4 py-8">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <div class="flex items-center">
-                            <div class="p-3 rounded-full bg-blue-100 text-blue-600">
-                                <i data-feather="activity" class="w-6 h-6"></i>
+                <!-- Quick Actions Section - Moved to top -->
+                <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">Quick Actions</h3>
+                    
+                    <!-- Data Source Selection -->
+                    <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <h4 class="text-md font-medium text-gray-700 mb-2">📊 Select Training Data Source</h4>
+                        
+                        <!-- Available Data Sources - Compact Grid -->
+                        <div class="mb-3">
+                            <div class="grid grid-cols-3 gap-2">
+                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('treasury_orderbook_sample.csv', 'orderbook')">
+                                    <div class="w-2 h-2 bg-blue-500 rounded-full mx-auto mb-1"></div>
+                                    <span class="text-xs font-medium">Treasury Orderbook</span>
+                                </div>
+                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_timeseries.csv', 'timeseries')">
+                                    <div class="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1"></div>
+                                    <span class="text-xs font-medium">Yield Curve</span>
+                                </div>
+                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_orderbook.csv', 'orderbook')">
+                                    <div class="w-2 h-2 bg-purple-500 rounded-full mx-auto mb-1"></div>
+                                    <span class="text-xs font-medium">Sample Orderbook</span>
+                                </div>
                             </div>
-                            <div class="ml-4">
-                                <h3 class="text-lg font-semibold text-gray-700">Training Status</h3>
-                                <p id="status-text" class="text-2xl font-bold text-blue-600">Idle</p>
+                        </div>
+                        
+                        <!-- Custom Upload - Compact Row -->
+                        <div class="flex items-center space-x-3">
+                            <div class="flex-1">
+                                <input type="file" id="csv-file-input" accept=".csv" class="hidden" />
+                                <button id="upload-csv" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 transition-colors">
+                                    📁 Upload CSV
+                                </button>
+                                <span id="selected-file-name" class="ml-2 text-xs text-gray-600"></span>
+                            </div>
+                            <button id="generate-sample" class="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition-colors">
+                                🔄 Generate Sample
+                            </button>
+                        </div>
+                        
+                        <!-- Selected Data Preview - Compact -->
+                        <div id="selected-data-preview" class="hidden mt-2">
+                            <div id="data-preview-content" class="bg-white rounded border border-gray-200 p-2 text-xs">
+                                <!-- Data preview content will be populated here -->
                             </div>
                         </div>
                     </div>
                     
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <div class="flex items-center">
-                            <div class="p-3 rounded-full bg-green-100 text-green-600">
-                                <i data-feather="trending-up" class="w-6 h-6"></i>
+                    <!-- Training Controls - Compact -->
+                    <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <h4 class="text-md font-medium text-blue-700 mb-2">🚀 Training Controls</h4>
+                        <div class="flex items-center justify-between">
+                            <div class="flex space-x-3">
+                                <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-medium text-sm">
+                                    ▶️ Start Training
+                                </button>
+                                <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 transition-colors font-medium text-sm">
+                                    ⏹️ Stop Training
+                                </button>
                             </div>
-                            <div class="ml-4">
-                                <h3 class="text-lg font-semibold text-gray-700">Generator Loss</h3>
-                                <p id="gen-loss" class="text-2xl font-bold text-green-600">-</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <div class="flex items-center">
-                            <div class="p-3 rounded-full bg-red-100 text-red-600">
-                                <i data-feather="trending-down" class="w-6 h-6"></i>
-                            </div>
-                            <div class="ml-4">
-                                <h3 class="text-lg font-semibold text-gray-700">Discriminator Loss</h3>
-                                <p id="disc-loss" class="text-2xl font-bold text-red-600">-</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <div class="flex items-center">
-                            <div class="p-3 rounded-full bg-purple-100 text-purple-600">
-                                <i data-feather="clock" class="w-6 h-6"></i>
-                            </div>
-                            <div class="ml-4">
-                                <h3 class="text-lg font-semibold text-gray-700">Epoch</h3>
-                                <p id="current-epoch" class="text-2xl font-bold text-purple-600">-</p>
+                            <div id="data-source-indicator" class="text-xs text-gray-600">
+                                <span class="font-medium">Status:</span> 
+                                <span id="data-source-status">No data source selected</span>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-4">Training Progress</h3>
+                <!-- Data Preview Section -->
+                <div id="data-preview-section" class="bg-white rounded-lg shadow-md p-4 mb-6" style="display: none;">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3">📊 Training Data Preview</h3>
+                    
+                    <!-- Data Info -->
+                    <div id="data-info" class="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 class="text-md font-medium text-gray-700 mb-2">Data Structure</h4>
+                        <div id="data-structure-info" class="text-sm text-gray-600">
+                            <!-- Data structure info will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Time Series Plot -->
+                    <div class="mb-4">
+                        <h4 class="text-md font-medium text-gray-700 mb-2">Time Series Visualization</h4>
+                        <div class="bg-gray-50 p-3 rounded-lg">
+                            <canvas id="dataPreviewChart" width="800" height="300"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Data Table Preview -->
+                    <div>
+                        <h4 class="text-md font-medium text-gray-700 mb-2">Sample Data (First 10 rows)</h4>
+                        <div class="overflow-x-auto">
+                            <div id="data-table-preview" class="bg-gray-50 p-3 rounded-lg">
+                                <!-- Data table will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Training Status Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="p-2 rounded-full bg-blue-100 text-blue-600">
+                                <i data-feather="activity" class="w-5 h-5"></i>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-sm font-semibold text-gray-700">Training Status</h3>
+                                <p id="status-text" class="text-xl font-bold text-blue-600">Idle</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="p-2 rounded-full bg-green-100 text-green-600">
+                                <i data-feather="trending-up" class="w-5 h-5"></i>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-sm font-semibold text-gray-700">Generator Loss</h3>
+                                <p id="gen-loss" class="text-xl font-bold text-green-600">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="p-2 rounded-full bg-red-100 text-red-600">
+                                <i data-feather="trending-down" class="w-5 h-5"></i>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-sm font-semibold text-gray-700">Discriminator Loss</h3>
+                                <p id="disc-loss" class="text-xl font-bold text-red-600">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="p-2 rounded-full bg-purple-100 text-purple-600">
+                                <i data-feather="clock" class="w-5 h-5"></i>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-sm font-semibold text-gray-700">Epoch</h3>
+                                <p id="current-epoch" class="text-xl font-bold text-purple-600">-</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Training Charts -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">Training Progress</h3>
                         <canvas id="trainingChart" width="400" height="200"></canvas>
                     </div>
                     
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-4">Real vs Synthetic Scores</h3>
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">Real vs Synthetic Scores</h3>
                         <canvas id="scoresChart" width="400" height="200"></canvas>
                     </div>
                 </div>
-                
-                <div class="mt-8 bg-white rounded-lg shadow-md p-6">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Quick Actions</h3>
-                    <div class="flex space-x-4">
-                        <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                            Start Training
-                        </button>
-                        <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors">
-                            Stop Training
-                        </button>
-                        <button id="generate-sample" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors">
-                            Generate Sample
-                        </button>
-                        <button id="upload-csv" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition-colors">
-                            Upload CSV
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Training Session Selector -->
-                <div class="mt-8 bg-white rounded-lg shadow-md p-6">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Training Session Management</h3>
-                    <p class="text-gray-600 mb-4">Select which training session to monitor and control</p>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Active Training Session</label>
-                            <select id="training-session-selector" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">No active session</option>
-                                <option value="session-1">Session 1 - Started 2 min ago</option>
-                                <option value="session-2">Session 2 - Started 5 min ago</option>
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Session Status</label>
-                            <div id="session-status" class="px-3 py-2 bg-gray-100 rounded-md text-sm">
-                                No active session
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Actions</label>
-                            <button id="refresh-sessions" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors">
-                                🔄 Refresh Sessions
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        <h5 class="font-semibold text-blue-700 mb-2">Session Information</h5>
-                        <div id="session-info" class="text-sm text-gray-600">
-                            <div>Select a training session to view details</div>
-                        </div>
-                    </div>
-                </div>
+
             </div>
             
             <script>
@@ -627,7 +701,10 @@ class GANDashboard:
 
                 
                 function updateDashboard(data) {
+                    console.log('🎯 Updating dashboard with:', data);
+                    
                     if (data.type === 'training_update') {
+                        // Update status cards
                         document.getElementById('gen-loss').textContent = data.data.generator_loss.toFixed(4);
                         document.getElementById('disc-loss').textContent = data.data.discriminator_loss.toFixed(4);
                         document.getElementById('current-epoch').textContent = data.data.epoch;
@@ -642,117 +719,208 @@ class GANDashboard:
                         scoresChart.data.datasets[0].data.push(data.data.real_scores);
                         scoresChart.data.datasets[1].data.push(data.data.fake_scores);
                         scoresChart.update();
+                        
+                    } else if (data.type === 'training_start') {
+                        console.log('🚀 Training started:', data.data);
+                        document.getElementById('status-text').textContent = 'Running';
+                        document.getElementById('status-text').className = 'text-2xl font-bold text-green-600';
+                        
+                        // Update training controls
+                        document.getElementById('start-training').disabled = true;
+                        document.getElementById('start-training').classList.add('opacity-50', 'cursor-not-allowed');
+                        document.getElementById('stop-training').disabled = false;
+                        document.getElementById('stop-training').classList.remove('opacity-50', 'cursor-not-allowed');
+                        
+                        // Show training info
+                        const trainingInfo = document.createElement('div');
+                        trainingInfo.className = 'mt-4 p-4 bg-green-50 rounded-lg border border-green-200';
+                        trainingInfo.innerHTML = `
+                            <h4 class="text-md font-medium text-green-700 mb-2">🚀 Training Started</h4>
+                            <div class="text-sm text-green-600">
+                                <p><strong>Config:</strong> ${data.data.config}</p>
+                                <p><strong>Data Source:</strong> ${data.data.data_source}</p>
+                                <p><strong>Status:</strong> ${data.data.status}</p>
+                                <p><strong>Time:</strong> ${new Date(data.timestamp).toLocaleTimeString()}</p>
+                            </div>
+                        `;
+                        
+                        // Remove existing training info if any
+                        const existingInfo = document.querySelector('.bg-green-50');
+                        if (existingInfo) {
+                            existingInfo.remove();
+                        }
+                        
+                        // Insert after training controls
+                        const trainingControls = document.querySelector('.p-4.bg-blue-50');
+                        trainingControls.parentNode.insertBefore(trainingInfo, trainingControls.nextSibling);
+                        
+                    } else if (data.type === 'training_complete') {
+                        console.log('✅ Training completed:', data.data);
+                        document.getElementById('status-text').textContent = data.data.status === 'completed' ? 'Completed' : 'Failed';
+                        document.getElementById('status-text').className = data.data.status === 'completed' ? 
+                            'text-2xl font-bold text-green-600' : 'text-2xl font-bold text-red-600';
+                        
+                        // Re-enable start training button
+                        document.getElementById('start-training').disabled = false;
+                        document.getElementById('start-training').classList.remove('opacity-50', 'cursor-not-allowed');
+                        document.getElementById('stop-training').disabled = true;
+                        document.getElementById('stop-training').classList.add('opacity-50', 'cursor-not-allowed');
+                        
+                        // Show completion info
+                        const completionInfo = document.createElement('div');
+                        completionInfo.className = `mt-4 p-4 ${data.data.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} rounded-lg border`;
+                        completionInfo.innerHTML = `
+                            <h4 class="text-md font-medium ${data.data.status === 'completed' ? 'text-green-700' : 'text-red-700'} mb-2">
+                                ${data.data.status === 'completed' ? '✅ Training Completed' : '❌ Training Failed'}
+                            </h4>
+                            <div class="text-sm ${data.data.status === 'completed' ? 'text-green-600' : 'text-red-600'}">
+                                <p><strong>Message:</strong> ${data.data.message}</p>
+                                <p><strong>Return Code:</strong> ${data.data.return_code}</p>
+                                <p><strong>Time:</strong> ${new Date(data.timestamp).toLocaleTimeString()}</p>
+                            </div>
+                        `;
+                        
+                        // Remove existing completion info if any
+                        const existingCompletion = document.querySelector('.bg-green-50, .bg-red-50');
+                        if (existingCompletion && existingCompletion !== document.querySelector('.bg-blue-50')) {
+                            existingCompletion.remove();
+                        }
+                        
+                        // Insert after training controls
+                        const trainingControls = document.querySelector('.p-4.bg-blue-50');
+                        trainingControls.parentNode.insertBefore(completionInfo, trainingControls.nextSibling);
+                        
+                    } else if (data.type === 'status_update') {
+                        console.log('📊 Status update:', data.data);
+                        // Update status if needed
                     }
                 }
                 
                 function updateProgress(data) {
                     // Update progress indicators
                     console.log('📊 Progress update:', data);
+                    
+                    if (data.type === 'progress') {
+                        // Create or update progress bar
+                        let progressBar = document.getElementById('training-progress-bar');
+                        if (!progressBar) {
+                            const progressContainer = document.createElement('div');
+                            progressContainer.className = 'mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200';
+                            progressContainer.innerHTML = `
+                                <h4 class="text-md font-medium text-blue-700 mb-2">📊 Training Progress</h4>
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div id="training-progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                                <div class="mt-2 text-sm text-blue-600">
+                                    <span id="progress-text">0%</span> - Epoch <span id="progress-epoch">0</span>
+                                </div>
+                            `;
+                            
+                            // Insert after training controls
+                            const trainingControls = document.querySelector('.p-4.bg-blue-50');
+                            trainingControls.parentNode.insertBefore(progressContainer, trainingControls.nextSibling);
+                            
+                            progressBar = document.getElementById('training-progress-bar');
+                        }
+                        
+                        // Update progress bar
+                        const progressPercent = data.progress_percent || 0;
+                        progressBar.style.width = `${progressPercent}%`;
+                        document.getElementById('progress-text').textContent = `${progressPercent.toFixed(1)}%`;
+                        document.getElementById('progress-epoch').textContent = data.epoch || 0;
+                    }
                 }
                 
                 function updateLogs(data) {
                     // Update log display
                     console.log('📝 Log update:', data);
-                }
-                
-                // Training session management functions
-                function updateSessionSelector() {
-                    const selector = document.getElementById('training-session-selector');
-                    const sessionStatus = document.getElementById('session-status');
-                    const sessionInfo = document.getElementById('session-info');
                     
-                    // Get current training status from the dashboard
-                    const currentStatus = document.getElementById('training-status')?.textContent || 'Unknown';
-                    
-                    if (currentStatus === 'Connected' || currentStatus === 'Running') {
-                        // Update selector with current session
-                        selector.innerHTML = `
-                            <option value="current">Current Session - Active Now</option>
-                            <option value="session-1">Session 1 - Started 2 min ago</option>
-                            <option value="session-2">Session 2 - Started 5 min ago</option>
-                        `;
-                        selector.value = 'current';
+                    if (data.type === 'log_entry') {
+                        // Create or update log display
+                        let logContainer = document.getElementById('training-logs-container');
+                        if (!logContainer) {
+                            const logsSection = document.createElement('div');
+                            logsSection.className = 'mt-8 bg-white rounded-lg shadow-md p-6';
+                            logsSection.innerHTML = `
+                                <h3 class="text-lg font-semibold text-gray-700 mb-4">📝 Training Logs</h3>
+                                <div id="training-logs-container" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm h-64 overflow-y-auto">
+                                    <!-- Log entries will be added here -->
+                                </div>
+                            `;
+                            
+                            // Insert after training charts
+                            const trainingCharts = document.querySelector('.grid.grid-cols-1.lg\\:grid-cols-2.gap-6');
+                            trainingCharts.parentNode.insertBefore(logsSection, trainingCharts.nextSibling);
+                            
+                            logContainer = document.getElementById('training-logs-container');
+                        }
                         
-                        sessionStatus.innerHTML = '<span class="text-green-600">🟢 Active</span>';
-                        sessionStatus.className = 'px-3 py-2 bg-green-100 rounded-md text-sm';
+                        // Add new log entry
+                        const logEntry = document.createElement('div');
+                        logEntry.className = 'mb-1';
                         
-                        sessionInfo.innerHTML = `
-                            <div><strong>Status:</strong> Training in progress</div>
-                            <div><strong>Channel:</strong> Connected to SSE</div>
-                            <div><strong>Last Update:</strong> ${new Date().toLocaleTimeString()}</div>
-                        `;
-                    } else {
-                        selector.innerHTML = `
-                            <option value="">No active session</option>
-                            <option value="session-1">Session 1 - Started 2 min ago</option>
-                            <option value="session-2">Session 2 - Started 5 min ago</option>
-                        `;
-                        selector.value = '';
+                        const timestamp = new Date(data.timestamp).toLocaleTimeString();
+                        const source = data.data.source || 'training';
+                        const message = data.data.message || '';
                         
-                        sessionStatus.innerHTML = '<span class="text-gray-600">⚪ Idle</span>';
-                        sessionStatus.className = 'px-3 py-2 bg-gray-100 rounded-md text-sm';
-                        
-                        sessionInfo.innerHTML = `
-                            <div>No active training session</div>
-                            <div>Use "Start Training" button to begin a new session</div>
+                        logEntry.innerHTML = `
+                            <span class="text-gray-400">[${timestamp}]</span>
+                            <span class="text-blue-400">[${source}]</span>
+                            <span class="text-green-400">${message}</span>
                         `;
+                        
+                        logContainer.appendChild(logEntry);
+                        
+                        // Auto-scroll to bottom
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                        
+                        // Limit log entries to prevent memory issues
+                        const maxEntries = 1000;
+                        if (logContainer.children.length > maxEntries) {
+                            logContainer.removeChild(logContainer.firstChild);
+                        }
                     }
                 }
                 
-                function refreshTrainingSessions() {
-                    console.log('🔄 Refreshing training sessions');
-                    updateSessionSelector();
-                    
-                    // Simulate finding existing sessions
-                    const sessionInfo = document.getElementById('session-info');
-                    sessionInfo.innerHTML = `
-                        <div><strong>Available Sessions:</strong></div>
-                        <div>• Session 1: Started 2 min ago, Status: Completed</div>
-                        <div>• Session 2: Started 5 min ago, Status: Running</div>
-                        <div>• Current: Status: ${document.getElementById('training-status')?.textContent || 'Unknown'}</div>
-                    `;
-                }
+
                 
-                // Setup event listeners for buttons
-                function setupButtons() {
-                    console.log('🔧 Setting up button event listeners');
-                    
-                    const refreshSessionsBtn = document.getElementById('refresh-sessions');
-                    
-                    if (refreshSessionsBtn) {
-                        refreshSessionsBtn.addEventListener('click', function() {
-                            console.log('🔄 Refresh sessions button clicked');
-                            refreshTrainingSessions();
-                        });
-                        console.log('✅ Refresh sessions button event listener added');
-                    } else {
-                        console.error('❌ Refresh sessions button not found');
-                    }
-                }
+
                 
                 // Connect to all channels on page load
                 window.addEventListener('load', function() {
-                    console.log('🚀 Page loaded, setting up SSE channels and buttons');
+                    console.log('🚀 Page loaded, setting up SSE channels');
                     connectTrainingChannel();
                     connectProgressChannel();
                     connectLogChannel();
-                    setupButtons();
-                    updateSessionSelector(); // Initial call to set up session selector
+                    initializeDataSourceSelection();
                 });
                 
                 // Button event listeners
                 document.getElementById('start-training').addEventListener('click', async () => {
+                    if (!selectedDataSource) {
+                        alert('Please select a data source first (Upload CSV or Generate Sample)');
+                        return;
+                    }
+                    
                     try {
                         const response = await fetch('/api/start_training', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({config: 'config/gan_config.yaml'})
+                            body: JSON.stringify({
+                                config: 'config/gan_config.yaml',
+                                data_source: selectedDataSource
+                            })
                         });
                         const result = await response.json();
                         if (result.success) {
                             document.getElementById('status-text').textContent = 'Running';
                             document.getElementById('status-text').className = 'text-2xl font-bold text-green-600';
-                            updateSessionSelector(); // Update session selector after training starts
+                            
+                            // Update training controls
+                            document.getElementById('start-training').disabled = true;
+                            document.getElementById('start-training').classList.add('opacity-50', 'cursor-not-allowed');
+                            document.getElementById('stop-training').disabled = false;
+                            document.getElementById('stop-training').classList.remove('opacity-50', 'cursor-not-allowed');
                         }
                     } catch (error) {
                         console.error('Error starting training:', error);
@@ -766,7 +934,12 @@ class GANDashboard:
                         if (result.success) {
                             document.getElementById('status-text').textContent = 'Stopped';
                             document.getElementById('status-text').className = 'text-2xl font-bold text-red-600';
-                            updateSessionSelector(); // Update session selector after training stops
+                            
+                            // Re-enable start training button
+                            document.getElementById('start-training').disabled = false;
+                            document.getElementById('start-training').classList.remove('opacity-50', 'cursor-not-allowed');
+                            document.getElementById('stop-training').disabled = true;
+                            document.getElementById('stop-training').classList.add('opacity-50', 'cursor-not-allowed');
                         }
                     } catch (error) {
                         console.error('Error stopping training:', error);
@@ -785,7 +958,497 @@ class GANDashboard:
                     }
                 });
                 
-                document.getElementById('refresh-sessions').addEventListener('click', refreshTrainingSessions);
+
+                
+                // Training state management
+                let selectedDataSource = null;
+                let selectedDataType = null;
+                
+                // Initialize data source selection
+                function initializeDataSourceSelection() {
+                    const startTrainingBtn = document.getElementById('start-training');
+                    const stopTrainingBtn = document.getElementById('stop-training');
+                    const uploadCsvBtn = document.getElementById('upload-csv');
+                    const generateSampleBtn = document.getElementById('generate-sample');
+                    const csvFileInput = document.getElementById('csv-file-input');
+                    const selectedFileName = document.getElementById('selected-file-name');
+                    
+                    // Initially disable training controls
+                    startTrainingBtn.disabled = true;
+                    startTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    stopTrainingBtn.disabled = true;
+                    stopTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    
+                    // Data source selection handlers
+                    function selectDataSource(filename, dataType) {
+                        selectedDataSource = filename;
+                        selectedDataType = dataType;
+                        
+                        // Update UI to show selection
+                        document.getElementById('data-source-status').textContent = `Selected: ${filename} (${dataType})`;
+                        document.getElementById('data-source-indicator').className = 'mt-2 p-2 rounded border border-green-200 bg-green-50';
+                        
+                        // Show data preview section
+                        document.getElementById('data-preview-section').style.display = 'block';
+                        
+                        // Load and display data preview
+                        loadDataPreview(filename);
+                        
+                        // Enable start training button
+                        startTrainingBtn.disabled = false;
+                        startTrainingBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                        
+                        console.log(`📊 Data source selected: ${filename} (${dataType})`);
+                    }
+                    
+                    // Make selectDataSource globally accessible
+                    window.selectDataSource = selectDataSource;
+                    
+                    async function loadDataPreview(filename) {
+                        try {
+                            const response = await fetch(`/api/preview_csv?filename=${encodeURIComponent(filename)}`);
+                            const result = await response.json();
+                            
+                            if (result.success) {
+                                displayDataPreview(result.data_info, result.plot_data, filename);
+                            } else {
+                                console.error('Error loading data preview:', result.error);
+                            }
+                        } catch (error) {
+                            console.error('Error loading data preview:', error);
+                        }
+                    }
+                    
+                    function displayDataPreview(dataInfo, plotData, filename) {
+                        // Update data structure info
+                        const structureInfo = document.getElementById('data-structure-info');
+                        structureInfo.innerHTML = `
+                            <div class="grid grid-cols-2 gap-4 text-sm">
+                                <div><span class="font-medium">Filename:</span> ${filename}</div>
+                                <div><span class="font-medium">Data Type:</span> ${dataInfo.data_type}</div>
+                                <div><span class="font-medium">Rows:</span> ${dataInfo.row_count}</div>
+                                <div><span class="font-medium">Columns:</span> ${dataInfo.column_count}</div>
+                                <div><span class="font-medium">Numeric Columns:</span> ${dataInfo.numeric_columns.length}</div>
+                                <div><span class="font-medium">Categorical Columns:</span> ${dataInfo.categorical_columns.length}</div>
+                            </div>
+                        `;
+                        
+                        // Update time series plot if we have plot data
+                        if (plotData && Object.keys(plotData).length > 1) {
+                            const ctx = document.getElementById('dataPreviewChart').getContext('2d');
+                            
+                            // Destroy existing chart if it exists
+                            if (window.dataPreviewChart) {
+                                window.dataPreviewChart.destroy();
+                            }
+                            
+                            const datasets = [];
+                            const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+                            
+                            Object.keys(plotData).forEach((key, index) => {
+                                if (key !== 'index') {
+                                    datasets.push({
+                                        label: key,
+                                        data: plotData[key],
+                                        borderColor: colors[index % colors.length],
+                                        backgroundColor: colors[index % colors.length] + '20',
+                                        tension: 0.1
+                                    });
+                                }
+                            });
+                            
+                            window.dataPreviewChart = new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: plotData.index || [],
+                                    datasets: datasets
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        
+                        // Update data table preview
+                        const tablePreview = document.getElementById('data-table-preview');
+                        if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
+                            const headers = Object.keys(dataInfo.sample_data[0]);
+                            const tableHTML = `
+                                <table class="w-full text-xs">
+                                    <thead>
+                                        <tr class="bg-gray-200">
+                                            ${headers.map(h => `<th class="p-2 text-left">${h}</th>`).join('')}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${dataInfo.sample_data.slice(0, 10).map(row => 
+                                            `<tr class="border-b border-gray-200">
+                                                ${headers.map(h => `<td class="p-2">${row[h]}</td>`).join('')}
+                                            </tr>`
+                                        ).join('')}
+                                    </tbody>
+                                </table>
+                            `;
+                            tablePreview.innerHTML = tableHTML;
+                        }
+                    }
+                    
+                    // Set default data source
+                    selectDataSource('treasury_orderbook_sample.csv', 'orderbook');
+                    
+                    // File upload handling
+                    uploadCsvBtn.addEventListener('click', () => {
+                        csvFileInput.click();
+                    });
+                    
+                    csvFileInput.addEventListener('change', (event) => {
+                        const file = event.target.files[0];
+                        if (file) {
+                            selectedFileName.textContent = file.name;
+                            
+                            // Upload file
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            
+                            fetch('/api/upload_csv', {
+                                method: 'POST',
+                                body: formData
+                            })
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    selectDataSource(file.name, 'custom');
+                                } else {
+                                    alert('Error uploading file: ' + result.error);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error uploading file:', error);
+                                alert('Error uploading file');
+                            });
+                        }
+                    });
+                    
+                    // Generate sample data
+                    generateSampleBtn.addEventListener('click', async () => {
+                        try {
+                            const response = await fetch('/api/generate_sample', {method: 'POST'});
+                            const result = await response.json();
+                            if (result.success) {
+                                selectDataSource('generated_sample.csv', 'generated');
+                                alert('Sample generated successfully!');
+                            }
+                        } catch (error) {
+                            console.error('Error generating sample:', error);
+                        }
+                    });
+                }
+                
+                // CSV upload and preview functionality
+                async function uploadAndPreviewCSV(file) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        
+                        // Upload the file
+                        const uploadResponse = await fetch('/api/upload_csv', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const uploadResult = await uploadResponse.json();
+                        
+                        if (uploadResult.success) {
+                            // Get data preview
+                            const previewResponse = await fetch(`/api/preview_csv?filename=${file.name}`);
+                            const previewResult = await previewResponse.json();
+                            
+                            if (previewResult.success) {
+                                // Show both the detailed preview and the compact preview in selector
+                                showDataPreview(previewResult.data_info, previewResult.plot_data, file.name);
+                                showSelectedDataPreview(previewResult.data_info, previewResult.plot_data, file.name, 'custom');
+                                
+                                // Update visual selection for custom upload
+                                document.querySelectorAll('[onclick^="selectDataSource"]').forEach(el => {
+                                    el.classList.remove('border-blue-500', 'bg-blue-50');
+                                    el.classList.add('border-gray-200', 'bg-white');
+                                });
+                            } else {
+                                console.error('Error getting preview:', previewResult.error);
+                            }
+                        } else {
+                            console.error('Error uploading file:', uploadResult.error);
+                        }
+                    } catch (error) {
+                        console.error('Error uploading CSV:', error);
+                    }
+                }
+                
+                // Show data preview
+                function showDataPreview(dataInfo, plotData, filename) {
+                    const previewSection = document.getElementById('data-preview-section');
+                    const structureInfo = document.getElementById('data-structure-info');
+                    const tablePreview = document.getElementById('data-table-preview');
+                    
+                    // Show the preview section
+                    previewSection.style.display = 'block';
+                    
+                    // Update data structure info
+                    let structureHTML = `
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div><strong>File:</strong> ${filename}</div>
+                            <div><strong>Shape:</strong> ${dataInfo.shape[0]} rows × ${dataInfo.shape[1]} columns</div>
+                            <div><strong>Data Type:</strong> ${dataInfo.data_type}</div>
+                            <div><strong>Numeric Columns:</strong> ${dataInfo.numeric_columns.length}</div>
+                        </div>
+                    `;
+                    
+                    if (dataInfo.data_type === 'multi_level_order_book') {
+                        structureHTML += `
+                            <div class="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
+                                <strong>Order Book Structure:</strong>
+                                <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                                    <div><strong>Bid Columns:</strong> ${dataInfo.order_book_info.bid_columns.join(', ') || 'None'}</div>
+                                    <div><strong>Ask Columns:</strong> ${dataInfo.order_book_info.ask_columns.join(', ') || 'None'}</div>
+                                    <div><strong>Price Columns:</strong> ${dataInfo.order_book_info.price_columns.join(', ') || 'None'}</div>
+                                    <div><strong>Size Columns:</strong> ${dataInfo.order_book_info.size_columns.join(', ') || 'None'}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    structureInfo.innerHTML = structureHTML;
+                    
+                    // Update data table preview
+                    if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
+                        const columns = Object.keys(dataInfo.sample_data[0]);
+                        let tableHTML = '<table class="w-full text-xs border-collapse">';
+                        
+                        // Header
+                        tableHTML += '<thead><tr class="bg-gray-200">';
+                        columns.forEach(col => {
+                            tableHTML += `<th class="border border-gray-300 px-2 py-1 text-left">${col}</th>`;
+                        });
+                        tableHTML += '</tr></thead>';
+                        
+                        // Data rows
+                        tableHTML += '<tbody>';
+                        dataInfo.sample_data.forEach(row => {
+                            tableHTML += '<tr>';
+                            columns.forEach(col => {
+                                const value = row[col];
+                                const displayValue = typeof value === 'number' ? value.toFixed(4) : value;
+                                tableHTML += `<td class="border border-gray-300 px-2 py-1">${displayValue}</td>`;
+                            });
+                            tableHTML += '</tr>';
+                        });
+                        tableHTML += '</tbody></table>';
+                        
+                        tablePreview.innerHTML = tableHTML;
+                    }
+                    
+                    // Create time series chart
+                    createDataPreviewChart(plotData);
+                }
+                
+                // Hide data preview
+                function hideDataPreview() {
+                    const previewSection = document.getElementById('data-preview-section');
+                    previewSection.style.display = 'none';
+                }
+                
+                // Create data preview chart
+                function createDataPreviewChart(plotData) {
+                    const ctx = document.getElementById('dataPreviewChart').getContext('2d');
+                    
+                    // Destroy existing chart if it exists
+                    if (window.dataPreviewChart) {
+                        window.dataPreviewChart.destroy();
+                    }
+                    
+                    const datasets = [];
+                    const colors = ['rgb(59, 130, 246)', 'rgb(239, 68, 68)', 'rgb(34, 197, 94)', 'rgb(168, 85, 247)', 'rgb(245, 158, 11)'];
+                    
+                    Object.keys(plotData).forEach((column, index) => {
+                        if (column !== 'index' && plotData[column]) {
+                            datasets.push({
+                                label: column,
+                                data: plotData[column],
+                                borderColor: colors[index % colors.length],
+                                backgroundColor: colors[index % colors.length].replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                                tension: 0.1,
+                                pointRadius: 2
+                            });
+                        }
+                    });
+                    
+                    window.dataPreviewChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: plotData.index || [],
+                            datasets: datasets
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'Time Index'
+                                    }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: 'Value'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Training Data Time Series Preview'
+                                },
+                                legend: {
+                                    position: 'top'
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Data source selection function
+                async function selectDataSource(filename, dataType) {
+                    try {
+                        // Update visual selection
+                        document.querySelectorAll('[onclick^="selectDataSource"]').forEach(el => {
+                            el.classList.remove('border-blue-500', 'bg-blue-50');
+                            el.classList.add('border-gray-200', 'bg-white');
+                        });
+                        
+                        // Highlight selected item
+                        event.currentTarget.classList.remove('border-gray-200', 'bg-white');
+                        event.currentTarget.classList.add('border-blue-500', 'bg-blue-50');
+                        
+                        // Set selected data source
+                        selectedDataSource = 'csv';
+                        
+                        // Get data preview
+                        const previewResponse = await fetch(`/api/preview_csv?filename=${filename}`);
+                        const previewResult = await previewResponse.json();
+                        
+                        if (previewResult.success) {
+                            showSelectedDataPreview(previewResult.data_info, previewResult.plot_data, filename, dataType);
+                            updateTrainingControls();
+                            showDataSourceStatus(`CSV Dataset: ${filename}`);
+                        } else {
+                            console.error('Error getting preview:', previewResult.error);
+                        }
+                    } catch (error) {
+                        console.error('Error selecting data source:', error);
+                    }
+                }
+                
+                // Show selected data preview in the selector
+                function showSelectedDataPreview(dataInfo, plotData, filename, dataType) {
+                    const previewSection = document.getElementById('selected-data-preview');
+                    const previewContent = document.getElementById('data-preview-content');
+                    
+                    // Show the preview section
+                    previewSection.classList.remove('hidden');
+                    
+                    // Create compact preview content
+                    let previewHTML = `
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
+                            <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                                <div class="font-medium text-gray-700">📁 File</div>
+                                <div class="text-gray-600 truncate">${filename}</div>
+                            </div>
+                            <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                                <div class="font-medium text-gray-700">📊 Shape</div>
+                                <div class="text-gray-600">${dataInfo.shape[0]} × ${dataInfo.shape[1]}</div>
+                            </div>
+                            <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                                <div class="font-medium text-gray-700">🔍 Type</div>
+                                <div class="text-gray-600">${dataInfo.data_type}</div>
+                            </div>
+                            <div class="bg-gray-50 p-2 rounded border border-gray-200">
+                                <div class="font-medium text-gray-700">📈 Columns</div>
+                                <div class="text-gray-600">${dataInfo.numeric_columns.length} numeric</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Add data statistics if available
+                    if (dataInfo.summary_stats && Object.keys(dataInfo.summary_stats).length > 0) {
+                        const firstNumericCol = dataInfo.numeric_columns[0];
+                        if (firstNumericCol && dataInfo.summary_stats[firstNumericCol]) {
+                            const stats = dataInfo.summary_stats[firstNumericCol];
+                            previewHTML += `
+                                <div class="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
+                                    <div class="font-medium text-blue-700 text-xs mb-1">📊 Sample Statistics (${firstNumericCol})</div>
+                                    <div class="grid grid-cols-2 gap-2 text-xs">
+                                        <div><span class="font-medium">Min:</span> ${stats.min ? stats.min.toFixed(4) : 'N/A'}</div>
+                                        <div><span class="font-medium">Max:</span> ${stats.max ? stats.max.toFixed(4) : 'N/A'}</div>
+                                        <div><span class="font-medium">Mean:</span> ${stats.mean ? stats.mean.toFixed(4) : 'N/A'}</div>
+                                        <div><span class="font-medium">Std:</span> ${stats.std ? stats.std.toFixed(4) : 'N/A'}</div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    // Add sample data preview (first 3 rows)
+                    if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
+                        const columns = Object.keys(dataInfo.sample_data[0]);
+                        let tableHTML = '<div class="mt-3"><div class="font-medium text-gray-700 mb-2">📋 Sample Data (First 3 rows):</div><div class="overflow-x-auto"><table class="w-full text-xs border-collapse">';
+                        
+                        // Header
+                        tableHTML += '<thead><tr class="bg-gray-200">';
+                        columns.forEach(col => {
+                            tableHTML += `<th class="border border-gray-300 px-1 py-1 text-left">${col}</th>`;
+                        });
+                        tableHTML += '</tr></thead>';
+                        
+                        // Data rows (first 3 only)
+                        tableHTML += '<tbody>';
+                        dataInfo.sample_data.slice(0, 3).forEach(row => {
+                            tableHTML += '<tr>';
+                            columns.forEach(col => {
+                                const value = row[col];
+                                const displayValue = typeof value === 'number' ? value.toFixed(3) : value;
+                                tableHTML += `<td class="border border-gray-300 px-1 py-1">${displayValue}</td>`;
+                            });
+                            tableHTML += '</tr>';
+                        });
+                        tableHTML += '</tbody></table></div></div>';
+                        
+                        previewHTML += tableHTML;
+                    }
+                    
+                    // Add data type specific information
+                    if (dataInfo.data_type === 'multi_level_order_book') {
+                        previewHTML += `
+                            <div class="mt-3 p-2 bg-green-50 rounded border border-green-200">
+                                <div class="font-medium text-green-700 text-xs mb-1">🏦 Order Book Structure</div>
+                                <div class="grid grid-cols-2 gap-2 text-xs">
+                                    <div><span class="font-medium">Bid Levels:</span> ${dataInfo.order_book_info.bid_columns.length}</div>
+                                    <div><span class="font-medium">Ask Levels:</span> ${dataInfo.order_book_info.ask_columns.length}</div>
+                                    <div><span class="font-medium">Price Columns:</span> ${dataInfo.order_book_info.price_columns.length}</div>
+                                    <div><span class="font-medium">Size Columns:</span> ${dataInfo.order_book_info.size_columns.length}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    previewContent.innerHTML = previewHTML;
+                }
                 
                 // Initialize Feather icons
                 feather.replace();
@@ -1163,56 +1826,182 @@ class GANDashboard:
         try:
             data = await request.json()
             config_path = data.get('config', 'config/gan_config.yaml')
+            data_source = data.get('data_source', 'treasury_orderbook_sample.csv')
             
             if self.training_status == "running":
                 return web.json_response({"success": False, "error": "Training already in progress"})
             
+            logger.info(f"Starting GAN training with config: {config_path}, data: {data_source}")
+            
             # Start training process
-            cmd = [sys.executable, "train_gan.py", "--config", config_path]
+            cmd = [sys.executable, "train_gan_csv_simple.py", "--config", config_path, "--data", data_source, "--epochs", "10"]
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                cwd=os.getcwd()  # Ensure we're in the right directory
             )
             
             self.training_status = "running"
             
-            # Start monitoring thread
+            # Start monitoring thread for real-time output
             def monitor_output():
+                logger.info("Starting training output monitoring...")
                 while self.training_process and self.training_process.poll() is None:
-                    line = self.training_process.stdout.readline()
-                    if line:
-                        # Parse training metrics and broadcast
-                        if "Epoch" in line and "Generator Loss" in line:
-                            try:
-                                # Extract metrics from log line
-                                parts = line.split()
-                                epoch = int(parts[1].split('/')[0])
-                                gen_loss = float(parts[4])
-                                disc_loss = float(parts[7])
-                                
-                                metrics = {
-                                    "type": "training_update",
-                                    "data": {
-                                        "epoch": epoch,
-                                        "generator_loss": gen_loss,
-                                        "discriminator_loss": disc_loss,
-                                        "real_scores": 0.8,  # Placeholder
-                                        "fake_scores": 0.2   # Placeholder
-                                    },
+                    try:
+                        line = self.training_process.stdout.readline()
+                        if line:
+                            line = line.strip()
+                            logger.info(f"Training output: {line}")
+                            
+                            # Parse training metrics and broadcast via SSE
+                            metrics = self.extract_training_metrics(line)
+                            if metrics:
+                                logger.info(f"Extracted metrics: {metrics}")
+                                # Use a safer approach for broadcasting from threads
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        asyncio.run_coroutine_threadsafe(
+                                            self.broadcast_training_update(metrics), 
+                                            loop
+                                        )
+                                except RuntimeError:
+                                    # Event loop not available, log instead
+                                    logger.info(f"Dashboard update (training): {metrics}")
+                            
+                            # Extract progress info
+                            progress = self.extract_progress_info(line)
+                            if progress:
+                                logger.info(f"Extracted progress: {progress}")
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        asyncio.run_coroutine_threadsafe(
+                                            self.broadcast_progress_update(progress), 
+                                            loop
+                                        )
+                                except RuntimeError:
+                                    logger.info(f"Dashboard update (progress): {progress}")
+                            
+                            # Broadcast log entry
+                            log_entry = {
+                                "type": "log_entry",
+                                "data": {
+                                    "message": line,
+                                    "source": "training",
                                     "timestamp": datetime.now().isoformat()
-                                }
-                                
-                                asyncio.create_task(self.broadcast_training_update(metrics))
-                            except:
-                                pass
+                                },
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            try:
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(
+                                        self.broadcast_log_update(log_entry), 
+                                        loop
+                                    )
+                            except RuntimeError:
+                                logger.info(f"Dashboard update (log): {log_entry}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error monitoring training output: {e}")
+                        break
                     
                     time.sleep(0.1)
+                
+                # Check if process completed
+                if self.training_process:
+                    return_code = self.training_process.poll()
+                    logger.info(f"Training process completed with return code: {return_code}")
+                    
+                    # Broadcast completion status
+                    completion_msg = {
+                        "type": "training_complete",
+                        "data": {
+                            "status": "completed" if return_code == 0 else "failed",
+                            "return_code": return_code,
+                            "message": "Training completed successfully" if return_code == 0 else "Training failed"
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.run_coroutine_threadsafe(
+                                self.broadcast_training_update(completion_msg), 
+                                loop
+                            )
+                    except RuntimeError:
+                        logger.info(f"Dashboard update (completion): {completion_msg}")
+                    except Exception as e:
+                        logger.error(f"Error broadcasting completion: {e}")
             
-            threading.Thread(target=monitor_output, daemon=True).start()
+            # Start monitoring in a separate thread
+            monitor_thread = threading.Thread(target=monitor_output, daemon=True)
+            monitor_thread.start()
             
-            return web.json_response({"success": True, "message": "Training started"})
+            # Also start monitoring stderr for errors
+            def monitor_stderr():
+                while self.training_process and self.training_process.poll() is None:
+                    try:
+                        line = self.training_process.stderr.readline()
+                        if line:
+                            line = line.strip()
+                            logger.error(f"Training error: {line}")
+                            
+                            # Broadcast error as log entry
+                            error_entry = {
+                                "type": "log_entry",
+                                "data": {
+                                    "message": f"ERROR: {line}",
+                                    "source": "training_error",
+                                    "timestamp": datetime.now().isoformat()
+                                },
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            try:
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(
+                                        self.broadcast_log_update(error_entry), 
+                                        loop
+                                    )
+                            except RuntimeError:
+                                logger.info(f"Dashboard update (error): {error_entry}")
+                    except Exception as e:
+                        logger.error(f"Error monitoring stderr: {e}")
+                        break
+                    time.sleep(0.1)
+            
+            stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
+            stderr_thread.start()
+            
+            # Broadcast training start message
+            start_msg = {
+                "type": "training_start",
+                "data": {
+                    "status": "started",
+                    "config": config_path,
+                    "data_source": data_source,
+                    "message": "GAN training started"
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.broadcast_training_update(start_msg)
+            
+            logger.info(f"Training started successfully with PID: {self.training_process.pid}")
+            return web.json_response({
+                "success": True, 
+                "message": "Training started",
+                "pid": self.training_process.pid,
+                "config": config_path,
+                "data_source": data_source
+            })
             
         except Exception as e:
             logger.error(f"Error starting training: {e}")
@@ -1297,10 +2086,94 @@ class GANDashboard:
             with open(file_path, 'wb') as f:
                 f.write(file.file.read())
             
-            return web.json_response({"success": True, "message": f"File {file.filename} uploaded successfully"})
+            # Return preview information
+            return web.json_response({
+                "success": True,
+                "message": f"File {file.filename} uploaded successfully",
+                "preview": {
+                    "filename": file.filename,
+                    "size": file.size,
+                    "type": file.content_type,
+                    "path": str(file_path)
+                }
+            })
             
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
+    
+    async def preview_csv(self, request):
+        """Preview the contents of a CSV file and analyze data structure."""
+        try:
+            filename = request.query.get('filename')
+            if not filename:
+                return web.json_response({"success": False, "error": "Filename not provided"}, status=400)
+            
+            csv_path = Path("data/csv") / filename
+            if not csv_path.exists():
+                return web.json_response({"success": False, "error": f"File not found: {filename}"}, status=404)
+            
+            # Import pandas here to avoid startup issues
+            import pandas as pd
+            import numpy as np
+            
+            # Read the CSV file
+            df = pd.read_csv(csv_path)
+            
+            # Analyze data structure
+            data_info = {
+                "shape": df.shape,
+                "columns": df.columns.tolist(),
+                "dtypes": df.dtypes.astype(str).to_dict(),
+                "missing_values": df.isnull().sum().to_dict(),
+                "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
+                "datetime_columns": df.select_dtypes(include=['datetime64']).columns.tolist(),
+                "sample_data": df.head(10).to_dict('records'),
+                "summary_stats": {}
+            }
+            
+            # Add summary statistics for numeric columns
+            if data_info["numeric_columns"]:
+                data_info["summary_stats"] = df[data_info["numeric_columns"]].describe().to_dict()
+            
+            # Detect if this is multi-level order book data
+            order_book_indicators = ['bid', 'ask', 'price', 'size', 'level', 'depth']
+            is_order_book = any(indicator in col.lower() for col in df.columns for indicator in order_book_indicators)
+            
+            if is_order_book:
+                data_info["data_type"] = "multi_level_order_book"
+                data_info["order_book_info"] = {
+                    "bid_columns": [col for col in df.columns if 'bid' in col.lower()],
+                    "ask_columns": [col for col in df.columns if 'ask' in col.lower()],
+                    "price_columns": [col for col in df.columns if 'price' in col.lower()],
+                    "size_columns": [col for col in df.columns if 'size' in col.lower()],
+                    "level_columns": [col for col in df.columns if 'level' in col.lower()]
+                }
+            else:
+                data_info["data_type"] = "time_series"
+            
+            # Get time series data for plotting (first 100 rows to avoid overwhelming)
+            plot_data = {}
+            if len(df) > 0:
+                sample_size = min(100, len(df))
+                sample_df = df.tail(sample_size)  # Use most recent data
+                
+                for col in data_info["numeric_columns"][:5]:  # Limit to first 5 numeric columns
+                    plot_data[col] = sample_df[col].tolist()
+                
+                # Add index for x-axis
+                plot_data["index"] = list(range(sample_size))
+            
+            return web.json_response({
+                "success": True,
+                "message": f"Preview for {filename}",
+                "data_info": data_info,
+                "plot_data": plot_data,
+                "filename": filename
+            })
+            
+        except Exception as e:
+            logger.error(f"Error previewing CSV: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
     
     # New endpoints for separate channels like test_separate_channels.py
     async def receive_training_data(self, request):
@@ -1414,6 +2287,17 @@ class GANDashboard:
             }
             await response.write(f"data: {json.dumps(connection_msg)}\n\n".encode())
             
+            # Send current training status
+            status_msg = {
+                'type': 'status_update',
+                'data': {
+                    'status': self.training_status,
+                    'message': f'Current training status: {self.training_status}'
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+            await response.write(f"data: {json.dumps(status_msg)}\n\n".encode())
+            
             # Send historical training data
             historical_data = self.load_historical_logs()
             for data in historical_data:
@@ -1421,9 +2305,14 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive
+            # Keep connection alive and monitor for disconnection
             while True:
-                await asyncio.sleep(1)
+                try:
+                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
+                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                except Exception as e:
+                    logger.error(f"Error sending heartbeat to training client {id(response)}: {e}")
+                    break
                 
         except Exception as e:
             logger.error(f"❌ Error with training client {id(response)}: {e}")
@@ -1469,9 +2358,14 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive
+            # Keep connection alive and monitor for disconnection
             while True:
-                await asyncio.sleep(1)
+                try:
+                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
+                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                except Exception as e:
+                    logger.error(f"Error sending heartbeat to progress client {id(response)}: {e}")
+                    break
                 
         except Exception as e:
             logger.error(f"❌ Error with progress client {id(response)}: {e}")
@@ -1516,8 +2410,15 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
+            # Keep connection alive and monitor for disconnection
             while True:
-                await asyncio.sleep(1)
+                try:
+                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
+                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                except Exception as e:
+                    logger.error(f"Error sending heartbeat to log client {id(response)}: {e}")
+                    break
+                    
         except asyncio.CancelledError:
             pass
         finally:
@@ -1526,40 +2427,91 @@ class GANDashboard:
         return response
     
     async def broadcast_training_update(self, data):
-        """Broadcast training update to all connected clients."""
+        """Broadcast training update to all connected training clients."""
+        if not self.training_clients:
+            logger.debug("No training clients connected, skipping broadcast")
+            return
+        
         message = f"data: {json.dumps(data)}\n\n"
+        logger.info(f"📡 Broadcasting training update to {len(self.training_clients)} clients: {data.get('type', 'unknown')}")
         
         # Create a copy of the set to avoid modification during iteration
         clients_to_remove = set()
-        for client in self.training_clients:
+        clients_copy = self.training_clients.copy()  # Create a copy to iterate over
+        
+        for client in clients_copy:
             try:
                 await client.write(message.encode('utf-8'))
-            except:
+                logger.debug(f"✅ Training update sent to client {id(client)}")
+            except Exception as e:
+                logger.error(f"❌ Error sending training update to client {id(client)}: {e}")
                 clients_to_remove.add(client)
         
         # Remove failed clients after iteration
         for client in clients_to_remove:
             self.training_clients.discard(client)
+            logger.info(f"🧹 Removed disconnected training client {id(client)}")
+        
+        if clients_to_remove:
+            logger.info(f"📊 Training broadcast completed. Removed {len(clients_to_remove)} clients. Active: {len(self.training_clients)}")
     
     async def broadcast_progress_update(self, data):
-        """Broadcast progress update to all connected clients."""
-        message = f"data: {json.dumps(data)}\n\n"
+        """Broadcast progress update to all connected progress clients."""
+        if not self.progress_clients:
+            logger.debug("No progress clients connected, skipping broadcast")
+            return
         
-        for client in self.progress_clients:
+        message = f"data: {json.dumps(data)}\n\n"
+        logger.info(f"📡 Broadcasting progress update to {len(self.progress_clients)} clients: {data.get('type', 'unknown')}")
+        
+        # Create a copy of the set to avoid modification during iteration
+        clients_to_remove = set()
+        clients_copy = self.progress_clients.copy()  # Create a copy to iterate over
+        
+        for client in clients_copy:
             try:
                 await client.write(message.encode('utf-8'))
-            except:
-                self.progress_clients.discard(client)
+                logger.debug(f"✅ Progress update sent to client {id(client)}")
+            except Exception as e:
+                logger.error(f"❌ Error sending progress update to client {id(client)}: {e}")
+                clients_to_remove.add(client)
+        
+        # Remove failed clients after iteration
+        for client in clients_to_remove:
+            self.progress_clients.discard(client)
+            logger.info(f"🧹 Removed disconnected progress client {id(client)}")
+        
+        if clients_to_remove:
+            logger.info(f"📊 Progress broadcast completed. Removed {len(clients_to_remove)} clients. Active: {len(self.progress_clients)}")
     
     async def broadcast_log_update(self, data):
-        """Broadcast log update to all connected clients."""
-        message = f"data: {json.dumps(data)}\n\n"
+        """Broadcast log update to all connected log clients."""
+        if not self.log_clients:
+            logger.debug("No log clients connected, skipping broadcast")
+            return
         
-        for client in self.log_clients:
+        message = f"data: {json.dumps(data)}\n\n"
+        logger.info(f"📡 Broadcasting log update to {len(self.log_clients)} clients: {data.get('type', 'unknown')}")
+        
+        # Create a copy of the set to avoid modification during iteration
+        clients_to_remove = set()
+        clients_copy = self.log_clients.copy()  # Create a copy to iterate over
+        
+        for client in clients_copy:
             try:
                 await client.write(message.encode('utf-8'))
-            except:
-                self.log_clients.discard(client)
+                logger.debug(f"✅ Log update sent to client {id(client)}")
+            except Exception as e:
+                logger.error(f"❌ Error sending log update to client {id(client)}: {e}")
+                clients_to_remove.add(client)
+        
+        # Remove failed clients after iteration
+        for client in clients_to_remove:
+            self.log_clients.discard(client)
+            logger.info(f"🧹 Removed disconnected log client {id(client)}")
+        
+        if clients_to_remove:
+            logger.info(f"📊 Log broadcast completed. Removed {len(clients_to_remove)} clients. Active: {len(self.log_clients)}")
     
     async def start(self):
         """Start the dashboard server."""
@@ -1578,21 +2530,37 @@ class GANDashboard:
 
 async def main():
     """Main function."""
-    dashboard = GANDashboard()
-    
     try:
+        dashboard = GANDashboard()
+        logger.info(f"🚀 Starting GAN Dashboard on port {dashboard.port}")
+        
         await dashboard.start()
+        
+        logger.info(f"✅ Dashboard is running at http://{dashboard.host}:{dashboard.port}")
+        logger.info("📊 SSE channels available:")
+        logger.info(f"   - Training: http://{dashboard.host}:{dashboard.port}/events/training")
+        logger.info(f"   - Progress: http://{dashboard.host}:{dashboard.port}/events/progress")
+        logger.info(f"   - Logs: http://{dashboard.host}:{dashboard.port}/events/logs")
+        logger.info("🔌 Press Ctrl+C to stop the dashboard")
         
         # Keep the server running
         while True:
             await asyncio.sleep(1)
             
     except KeyboardInterrupt:
-        logger.info("Shutting down dashboard...")
-        await dashboard.stop()
+        logger.info("🛑 Shutting down dashboard...")
+        if 'dashboard' in locals():
+            await dashboard.stop()
+        logger.info("✅ Dashboard stopped successfully")
+    except Exception as e:
+        logger.error(f"❌ Error starting dashboard: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Dashboard stopped by user") 
+        logger.info("Dashboard stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1) 

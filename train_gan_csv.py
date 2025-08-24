@@ -2,6 +2,7 @@
 """
 Main training script for Treasury Curve GAN using CSV data sources.
 Modified version for loading data from CSV files instead of APIs.
+Now includes dashboard channel integration for real-time monitoring.
 """
 
 import argparse
@@ -10,6 +11,9 @@ import os
 import sys
 import yaml
 from pathlib import Path
+import requests
+import time
+from datetime import datetime
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -26,6 +30,79 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+class DashboardChannelSender:
+    """Class to send training data and progress to dashboard channels."""
+    
+    def __init__(self, dashboard_url="http://localhost:8081"):
+        self.dashboard_url = dashboard_url
+        self.total_epochs = None
+    
+    def set_total_epochs(self, total_epochs):
+        """Set the total number of epochs for progress calculation."""
+        self.total_epochs = total_epochs
+    
+    def send_training_data(self, epoch, generator_loss, discriminator_loss, real_scores, fake_scores):
+        """Send training metrics to training channel."""
+        training_data = {
+            "type": "training_update",
+            "data": {
+                "epoch": epoch,
+                "total_epochs": self.total_epochs,
+                "generator_loss": round(float(generator_loss), 4),
+                "discriminator_loss": round(float(discriminator_loss), 4),
+                "real_scores": round(float(real_scores), 4),
+                "fake_scores": round(float(fake_scores), 4)
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.dashboard_url}/training_data",
+                json=training_data,
+                headers={"Content-Type": "application/json"},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"🎯 Training data sent to dashboard: Epoch {epoch}, Gen Loss: {generator_loss:.4f}, Disc Loss: {discriminator_loss:.4f}")
+                return True
+            else:
+                logger.warning(f"Training data failed to send: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.warning(f"Training data error: {e}")
+            return False
+    
+    def send_progress_data(self, epoch, progress_percent):
+        """Send progress update to progress channel."""
+        progress_data = {
+            "type": "progress",
+            "epoch": epoch,
+            "progress_percent": progress_percent,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.dashboard_url}/progress_data",
+                json=progress_data,
+                headers={"Content-Type": "application/json"},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"📊 Progress {progress_percent}% sent to dashboard for epoch {epoch}")
+                return True
+            else:
+                logger.warning(f"Progress {progress_percent}% failed to send: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.warning(f"Progress {progress_percent}% error: {e}")
+            return False
 
 def setup_environment():
     """Setup training environment and check dependencies."""
@@ -77,28 +154,19 @@ def collect_csv_data(config: dict, sequence_length: int = 100) -> tuple:
         logger.info(f"Loaded data: sequences {sequences.shape}, targets {targets.shape}")
         return sequences, targets, scaler
     
-    # Get CSV directory from config
-    csv_directory = config.get('data_source', {}).get('csv_directory', 'data/csv')
+    # Get CSV file from config
+    csv_file = config.get('data_source', {}).get('csv_file', 'treasury_orderbook_sample.csv')
+    csv_directory = 'data/csv'
+    csv_path = os.path.join(csv_directory, csv_file)
     
-    # Check if CSV directory exists and contains files
-    if not os.path.exists(csv_directory):
-        logger.error(f"CSV directory {csv_directory} does not exist!")
-        logger.info("Please create the directory and add your CSV files:")
-        logger.info(f"  mkdir -p {csv_directory}")
-        logger.info("  # Then add your CSV files:")
-        logger.info("  # - treasury_yields.csv")
-        logger.info("  # - order_book_data.csv")
-        logger.info("  # - features.csv")
-        raise FileNotFoundError(f"CSV directory {csv_directory} not found")
+    # Check if CSV file exists
+    if not os.path.exists(csv_path):
+        logger.error(f"CSV file {csv_path} does not exist!")
+        logger.info("Please ensure the CSV file is in the data/csv directory:")
+        logger.info(f"  {csv_path}")
+        raise FileNotFoundError(f"CSV file {csv_path} not found")
     
-    csv_files = [f for f in os.listdir(csv_directory) if f.endswith('.csv')]
-    if not csv_files:
-        logger.error(f"No CSV files found in {csv_directory}")
-        logger.info("Please add CSV files to the directory:")
-        logger.info(f"  {csv_directory}/")
-        raise FileNotFoundError(f"No CSV files found in {csv_directory}")
-    
-    logger.info(f"Found CSV files: {csv_files}")
+    logger.info(f"Using CSV file: {csv_file}")
     
     # Collect new data from CSV
     logger.info("Processing CSV data...")
@@ -123,15 +191,16 @@ def collect_csv_data(config: dict, sequence_length: int = 100) -> tuple:
         logger.error(f"Error processing CSV data: {e}")
         raise
 
-def train_model(config: dict, device: torch.device, sequences: np.ndarray, targets: np.ndarray):
+def train_model(config: dict, device: torch.device, sequences: np.ndarray, targets: np.ndarray, dashboard_sender=None):
     """
-    Train the GAN model.
+    Train the GAN model with dashboard channel integration.
     
     Args:
         config: Configuration dictionary
         device: Device to train on
         sequences: Training sequences
         targets: Training targets
+        dashboard_sender: Optional DashboardChannelSender instance
         
     Returns:
         Trained GANTrainer instance
@@ -149,10 +218,95 @@ def train_model(config: dict, device: torch.device, sequences: np.ndarray, targe
         val_split=config['data_processing']['validation_split']
     )
     
-    # Train the model
-    trainer.train(train_loader, val_loader)
+    # If dashboard sender is provided, use custom training loop
+    if dashboard_sender:
+        logger.info("Using dashboard-integrated training loop...")
+        custom_train_with_dashboard(trainer, train_loader, val_loader, dashboard_sender)
+    else:
+        # Use default training
+        logger.info("Using default training loop...")
+        trainer.train(train_loader, val_loader)
     
     return trainer
+
+def custom_train_with_dashboard(trainer, train_loader, val_loader, dashboard_sender):
+    """
+    Custom training loop that sends data to dashboard channels.
+    
+    Args:
+        trainer: GANTrainer instance
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        dashboard_sender: DashboardChannelSender instance
+    """
+    logger.info("Starting custom training loop with dashboard integration...")
+    
+    total_epochs = trainer.config['training']['epochs']
+    dashboard_sender.set_total_epochs(total_epochs)
+    
+    for epoch in range(total_epochs):
+        trainer.current_epoch = epoch
+        
+        # Send progress update for epoch start
+        dashboard_sender.send_progress_data(epoch, 0)
+        
+        # Train epoch
+        train_metrics = trainer.train_epoch(train_loader)
+        
+        # Validate
+        val_metrics = trainer.validate(val_loader)
+        
+        # Update metrics
+        trainer.generator_losses.append(train_metrics['generator_loss'])
+        trainer.discriminator_losses.append(train_metrics['discriminator_loss'])
+        trainer.discriminator_real_scores.append(train_metrics['real_scores'])
+        trainer.discriminator_fake_scores.append(train_metrics['fake_scores'])
+        
+        # Send training data to dashboard
+        dashboard_sender.send_training_data(
+            epoch + 1,  # epoch is 0-indexed, but dashboard expects 1-indexed
+            train_metrics['generator_loss'],
+            train_metrics['discriminator_loss'],
+            train_metrics['real_scores'],
+            train_metrics['fake_scores']
+        )
+        
+        # Send progress update for epoch completion
+        dashboard_sender.send_progress_data(epoch, 100)
+        
+        # Log progress
+        if epoch % 10 == 0:
+            logger.info(f"Epoch {epoch}/{total_epochs}")
+            logger.info(f"Generator Loss: {train_metrics['generator_loss']:.4f}")
+            logger.info(f"Discriminator Loss: {train_metrics['discriminator_loss']:.4f}")
+            logger.info(f"Real Scores: {train_metrics['real_scores']:.4f}")
+            logger.info(f"Fake Scores: {train_metrics['fake_scores']:.4f}")
+            logger.info(f"Val Generator Loss: {val_metrics['val_generator_loss']:.4f}")
+            logger.info(f"Val Discriminator Loss: {val_metrics['val_discriminator_loss']:.4f}")
+            logger.info("-" * 50)
+        
+        # Save checkpoint
+        if epoch % 50 == 0:
+            trainer.save_checkpoint(f"checkpoint_epoch_{epoch}.pth")
+        
+        # Early stopping
+        current_loss = val_metrics['val_generator_loss']
+        if current_loss < trainer.best_loss:
+            trainer.best_loss = current_loss
+            trainer.patience_counter = 0
+            trainer.save_checkpoint("best_model.pth")
+        else:
+            trainer.patience_counter += 1
+            
+        if trainer.patience_counter >= trainer.config['training']['patience']:
+            logger.info(f"Early stopping at epoch {epoch}")
+            break
+        
+        # Small delay to allow dashboard to process updates
+        time.sleep(0.1)
+    
+    logger.info("Training completed!")
+    trainer.plot_training_curves()
 
 def evaluate_model(trainer: GANTrainer, test_loader, scaler, config: dict):
     """
@@ -224,8 +378,10 @@ def evaluate_model(trainer: GANTrainer, test_loader, scaler, config: dict):
 def main():
     """Main training function for CSV data."""
     parser = argparse.ArgumentParser(description='Train Treasury Curve GAN with CSV data')
-    parser.add_argument('--config', type=str, default='config/csv_config.yaml',
-                       help='Path to CSV configuration file')
+    parser.add_argument('--config', type=str, default='config/gan_config.yaml',
+                       help='Path to GAN configuration file')
+    parser.add_argument('--data', type=str, default='treasury_orderbook_sample.csv',
+                       help='Data source CSV file to use for training')
     parser.add_argument('--sequence-length', type=int, default=100,
                        help='Length of sequences for training')
     parser.add_argument('--skip-training', action='store_true',
@@ -243,8 +399,19 @@ def main():
         logger.error(f"Failed to load configuration: {e}")
         return
     
+    # Update config with data source if provided
+    if args.data:
+        if 'data_source' not in config:
+            config['data_source'] = {}
+        config['data_source']['csv_file'] = args.data
+        logger.info(f"Using data source: {args.data}")
+    
     # Setup environment
     device = setup_environment()
+    
+    # Initialize dashboard sender
+    dashboard_url = config.get('dashboard', {}).get('url', "http://localhost:8081")
+    dashboard_sender = DashboardChannelSender(dashboard_url)
     
     # Collect CSV data
     sequence_length = args.sequence_length or config.get('data_processing', {}).get('sequence_length', 100)
@@ -267,7 +434,7 @@ def main():
         evaluate_model(trainer, test_loader, scaler, config)
     else:
         # Train model
-        trainer = train_model(config, device, sequences, targets)
+        trainer = train_model(config, device, sequences, targets, dashboard_sender)
         
         # Evaluate model
         _, _, test_loader = create_data_loaders(

@@ -12,7 +12,7 @@ model:
     dropout: 0.3
 
 # Data configuration
-data:
+data_processing:
   sequence_length: 100
   num_features: 7  # 4 yields + 3 spreads
   batch_size: 32
@@ -22,7 +22,8 @@ data:
 
 # Training configuration
 training:
-  epochs: 1000
+  epochs: 10  # Reduced for testing
+  batch_size: 32
   learning_rate_generator: 0.0002
   learning_rate_discriminator: 0.0002
   beta1: 0.5
@@ -36,6 +37,9 @@ instruments: ["2Y", "5Y", "10Y", "30Y"]
 
 # Data source configuration
 data_source:
-  start_date: "2022-01-01"
-  end_date: "2024-01-01"
-  csv_directory: "data/csv" 
+  csv_file: "treasury_orderbook_sample.csv"
+  csv_directory: "data/csv"
+
+# Dashboard configuration
+dashboard:
+  url: "http://localhost:8081" 

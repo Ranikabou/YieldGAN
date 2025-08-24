@@ -196,4 +196,11 @@ FINAL_REPORT_*/
 *.gif
 *.pdf
 *.parquet
-*.npy 
+*.npy
+
+# Large log files and backups
+*.log.backup
+*_startup.log*
+*.log.*
+logs/*.log
+*.backup 

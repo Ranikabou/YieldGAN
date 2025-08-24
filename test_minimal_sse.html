@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal SSE Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Minimal SSE Test</h1>
+    
+    <div id="training-status" class="status disconnected">Training: Disconnected</div>
+    <div id="progress-status" class="status disconnected">Progress: Disconnected</div>
+    
+    <div id="training-data" class="data">No training data</div>
+    <div id="progress-data" class="data">No progress data</div>
+    
+    <div id="console-log" style="height: 200px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+    
+    <script>
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        // Test SSE connection
+        log('🚀 Starting SSE test...');
+        
+        // Training channel
+        const trainingEventSource = new EventSource('/events/training');
+        
+        trainingEventSource.onopen = function() {
+            log('🎯 Training channel connected');
+            document.getElementById('training-status').textContent = 'Training: Connected';
+            document.getElementById('training-status').className = 'status connected';
+        };
+        
+        trainingEventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                log(`🎯 Training data: ${JSON.stringify(data)}`);
+                
+                if (data.type === 'training_update') {
+                    document.getElementById('training-data').innerHTML = `
+                        <h3>Training Update:</h3>
+                        <p>Epoch: ${data.data.epoch}</p>
+                        <p>Gen Loss: ${data.data.generator_loss}</p>
+                        <p>Disc Loss: ${data.data.discriminator_loss}</p>
+                    `;
+                }
+            } catch (error) {
+                log(`🎯 Error: ${error}`);
+            }
+        };
+        
+        trainingEventSource.onerror = function(error) {
+            log(`🎯 Training error: ${error}`);
+            document.getElementById('training-status').textContent = 'Training: Error';
+            document.getElementById('training-status').className = 'status disconnected';
+        };
+        
+        // Progress channel
+        const progressEventSource = new EventSource('/events/progress');
+        
+        progressEventSource.onopen = function() {
+            log('📊 Progress channel connected');
+            document.getElementById('progress-status').textContent = 'Progress: Connected';
+            document.getElementById('progress-status').className = 'status connected';
+        };
+        
+        progressEventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                log(`📊 Progress data: ${JSON.stringify(data)}`);
+                
+                if (data.type === 'progress') {
+                    document.getElementById('progress-data').innerHTML = `
+                        <h3>Progress Update:</h3>
+                        <p>Epoch: ${data.epoch}</p>
+                        <p>Progress: ${data.progress_percent}%</p>
+                    `;
+                }
+            } catch (error) {
+                log(`📊 Error: ${error}`);
+            }
+        };
+        
+        progressEventSource.onerror = function(error) {
+            log(`📊 Progress error: ${error}`);
+            document.getElementById('progress-status').textContent = 'Progress: Error';
+            document.getElementById('progress-status').className = 'status disconnected';
+        };
+        
+        log('✅ SSE channels initialized');
+    </script>
+</body>
+</html> 

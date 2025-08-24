@@ -85,6 +85,9 @@ class GANDashboard:
         self.app.router.add_get('/training', self.training_page)
         self.app.router.add_get('/evaluation', self.evaluation_page)
         self.app.router.add_get('/models', self.models_page)
+        self.app.router.add_get('/test_sse_debug', self.test_sse_debug)
+        self.app.router.add_get('/test_minimal_sse', self.test_minimal_sse)
+        self.app.router.add_get('/test_main_dashboard_sse', self.test_main_dashboard_sse)
         
         # API endpoints
         self.app.router.add_post('/api/start_training', self.start_training)
@@ -334,6 +337,482 @@ class GANDashboard:
         
         return historical_data
     
+    async def test_sse_debug(self, request):
+        """Test page for debugging SSE connections."""
+        html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>SSE Debug Test</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .connected { background-color: #d4edda; color: #155724; }
+                .disconnected { background-color: #f8d7da; color: #721c24; }
+                .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+                pre { white-space: pre-wrap; word-wrap: break-word; }
+            </style>
+        </head>
+        <body>
+            <h1>SSE Connection Debug Test</h1>
+            
+            <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+            <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+            
+            <h2>Training Data Received:</h2>
+            <div id="training-data" class="data">No data yet...</div>
+            
+            <h2>Progress Data Received:</h2>
+            <div id="progress-data" class="data">No data yet...</div>
+            
+            <h2>Console Log:</h2>
+            <div id="console-log" class="data" style="height: 300px; overflow-y-auto; font-family: monospace; font-size: 12px;"></div>
+            
+            <script>
+                let trainingEventSource = null;
+                let progressEventSource = null;
+                
+                function log(message) {
+                    const consoleLog = document.getElementById('console-log');
+                    const timestamp = new Date().toLocaleTimeString();
+                    consoleLog.innerHTML += `[${timestamp}] ${message}\\n`;
+                    consoleLog.scrollTop = consoleLog.scrollHeight;
+                    console.log(message);
+                }
+                
+                function connectTrainingChannel() {
+                    if (trainingEventSource) {
+                        trainingEventSource.close();
+                    }
+                    
+                    log('🎯 Connecting to training channel...');
+                    trainingEventSource = new EventSource('/events/training');
+                    
+                    trainingEventSource.onopen = function() {
+                        log('🎯 Training channel connected');
+                        document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                        document.getElementById('training-status').className = 'status connected';
+                    };
+                    
+                    trainingEventSource.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log(`🎯 Training data received: ${JSON.stringify(data, null, 2)}`);
+                            
+                            if (data.type === 'training_update') {
+                                document.getElementById('training-data').innerHTML = `
+                                    <h3>Training Update:</h3>
+                                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                                `;
+                            } else if (data.type === 'connection') {
+                                log(`🎯 Training channel info: ${data.message}`);
+                            }
+                        } catch (error) {
+                            log(`🎯 Error parsing training data: ${error}`);
+                        }
+                    };
+                    
+                    trainingEventSource.onerror = function(error) {
+                        log(`🎯 Training channel error: ${error}`);
+                        document.getElementById('training-status').textContent = 'Training Channel: Error';
+                        document.getElementById('training-status').className = 'status disconnected';
+                    };
+                }
+                
+                function connectProgressChannel() {
+                    if (progressEventSource) {
+                        progressEventSource.close();
+                    }
+                    
+                    log('📊 Connecting to progress channel...');
+                    progressEventSource = new EventSource('/events/progress');
+                    
+                    progressEventSource.onopen = function() {
+                        log('📊 Progress channel connected');
+                        document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                        document.getElementById('progress-status').className = 'status connected';
+                    };
+                    
+                    progressEventSource.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log(`📊 Progress data received: ${JSON.stringify(data, null, 2)}`);
+                            
+                            if (data.type === 'progress') {
+                                document.getElementById('progress-data').innerHTML = `
+                                    <h3>Progress Update:</h3>
+                                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                                `;
+                            } else if (data.type === 'connection') {
+                                log(`📊 Progress channel info: ${data.message}`);
+                            }
+                        } catch (error) {
+                            log(`📊 Error parsing progress data: ${error}`);
+                        }
+                    };
+                    
+                    progressEventSource.onerror = function(error) {
+                        log(`📊 Progress channel error: ${error}`);
+                        document.getElementById('progress-status').textContent = 'Progress Channel: Error';
+                        document.getElementById('progress-status').className = 'status disconnected';
+                    };
+                }
+                
+                // Connect on page load
+                window.addEventListener('load', function() {
+                    log('🚀 Page loaded, connecting to SSE channels...');
+                    connectTrainingChannel();
+                    connectProgressChannel();
+                });
+                
+                // Cleanup on page unload
+                window.addEventListener('beforeunload', function() {
+                    if (trainingEventSource) {
+                        trainingEventSource.close();
+                    }
+                    if (progressEventSource) {
+                        progressEventSource.close();
+                    }
+                });
+            </script>
+        </body>
+        </html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
+    async def test_minimal_sse(self, request):
+        """Minimal SSE test page."""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Minimal SSE Test</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .connected { background-color: #d4edda; color: #155724; }
+                .disconnected { background-color: #f8d7da; color: #721c24; }
+                .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+            </style>
+        </head>
+        <body>
+            <h1>Minimal SSE Test</h1>
+            
+            <div id="training-status" class="status disconnected">Training: Disconnected</div>
+            <div id="progress-status" class="status disconnected">Progress: Disconnected</div>
+            
+            <div id="training-data" class="data">No training data</div>
+            <div id="progress-data" class="data">No progress data</div>
+            
+            <div id="console-log" style="height: 200px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+            
+            <script>
+                function log(message) {
+                    const consoleLog = document.getElementById('console-log');
+                    const timestamp = new Date().toLocaleTimeString();
+                    consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+                    consoleLog.scrollTop = consoleLog.scrollHeight;
+                    console.log(message);
+                }
+                
+                // Test SSE connection
+                log('🚀 Starting SSE test...');
+                
+                // Training channel
+                const trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function() {
+                    log('🎯 Training channel connected');
+                    document.getElementById('training-status').textContent = 'Training: Connected';
+                    document.getElementById('training-status').className = 'status connected';
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`🎯 Training data: ${JSON.stringify(data)}`);
+                        
+                        if (data.type === 'training_update') {
+                            document.getElementById('training-data').innerHTML = `
+                                <h3>Training Update:</h3>
+                                <p>Epoch: ${data.data.epoch}</p>
+                                <p>Gen Loss: ${data.data.generator_loss}</p>
+                                <p>Disc Loss: ${data.data.discriminator_loss}</p>
+                            </p>
+                        }
+                    } catch (error) {
+                        log(`🎯 Error: ${error}`);
+                    }
+                };
+                
+                trainingEventSource.onerror = function(error) {
+                    log(`🎯 Training error: ${error}`);
+                    document.getElementById('training-status').textContent = 'Training: Error';
+                    document.getElementById('training-status').className = 'status disconnected';
+                };
+                
+                // Progress channel
+                const progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function() {
+                    log('📊 Progress channel connected');
+                    document.getElementById('progress-status').textContent = 'Progress: Connected';
+                    document.getElementById('progress-status').className = 'status connected';
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Progress data: ${JSON.stringify(data)}`);
+                        
+                        if (data.type === 'progress') {
+                            document.getElementById('progress-data').innerHTML = `
+                                <h3>Progress Update:</h3>
+                                <p>Epoch: ${data.epoch}</p>
+                                <p>Progress: ${data.progress_percent}%</p>
+                            </p>
+                        }
+                    } catch (error) {
+                        log(`📊 Progress error: ${error}`);
+                    }
+                };
+                
+                progressEventSource.onerror = function(error) {
+                    log(`📊 Progress error: ${error}`);
+                    document.getElementById('progress-status').textContent = 'Progress: Error';
+                    document.getElementById('progress-status').className = 'status disconnected';
+                };
+                
+                log('✅ SSE channels initialized');
+            </script>
+        </body>
+        </html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
+    async def test_main_dashboard_sse(self, request):
+        """Test page that simulates the main dashboard's SSE functionality."""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Main Dashboard SSE Test</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .connected { background-color: #d4edda; color: #155724; }
+                .disconnected { background-color: #f8d7da; color: #721c24; }
+                .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            </style>
+        </head>
+        <body>
+            <h1>Main Dashboard SSE Test</h1>
+            
+            <!-- Training Status Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div class="card">
+                    <div class="flex items-center">
+                        <div class="p-2 rounded-full bg-blue-100 text-blue-600">📊</div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-semibold text-gray-700">Training Status</h3>
+                            <p id="status-text" class="text-xl font-bold text-blue-600">Idle</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="flex items-center">
+                        <div class="p-2 rounded-full bg-green-100 text-green-600">📈</div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-semibold text-gray-700">Generator Loss</h3>
+                            <p id="gen-loss" class="text-xl font-bold text-green-600">-</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="flex items-center">
+                        <div class="p-2 rounded-full bg-red-100 text-red-600">📉</div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-semibold text-gray-700">Discriminator Loss</h3>
+                            <p id="disc-loss" class="text-xl font-bold text-red-600">-</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="flex items-center">
+                        <div class="p-2 rounded-full bg-purple-100 text-purple-600">⏰</div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-semibold text-gray-700">Epoch</h3>
+                            <p id="current-epoch" class="text-xl font-bold text-purple-600">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="console-log" style="height: 300px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+            
+            <script>
+                function log(message) {
+                    const consoleLog = document.getElementById('console-log');
+                    const timestamp = new Date().toLocaleTimeString();
+                    consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+                    consoleLog.scrollTop = consoleLog.scrollHeight;
+                    console.log(message);
+                }
+                
+                // Simulate the main dashboard's SSE functionality
+                let trainingEventSource = null;
+                let progressEventSource = null;
+                
+                function updateDashboard(data) {
+                    log('🎯 Updating dashboard with: ' + JSON.stringify(data));
+                    
+                    if (data.type === 'training_update') {
+                        log('🎯 Processing training update: ' + JSON.stringify(data.data));
+                        
+                        // Update training status to Running when we receive training data
+                        const statusElement = document.getElementById('status-text');
+                        log('🎯 Looking for status-text element: ' + statusElement);
+                        if (statusElement) {
+                            statusElement.textContent = 'Running';
+                            statusElement.className = 'text-xl font-bold text-green-600';
+                            log('✅ Updated training status to Running');
+                        } else {
+                            log('❌ status-text element not found');
+                        }
+                        
+                        // Update status cards
+                        const genLossElement = document.getElementById('gen-loss');
+                        const discLossElement = document.getElementById('disc-loss');
+                        const currentEpochElement = document.getElementById('current-epoch');
+                        
+                        log('🎯 Found elements: ' + JSON.stringify({
+                            genLoss: genLossElement,
+                            discLoss: discLossElement,
+                            currentEpoch: currentEpochElement
+                        }));
+                        
+                        if (genLossElement) {
+                            genLossElement.textContent = data.data.generator_loss.toFixed(4);
+                            log('✅ Updated generator loss: ' + data.data.generator_loss);
+                        } else {
+                            log('❌ gen-loss element not found');
+                        }
+                        
+                        if (discLossElement) {
+                            discLossElement.textContent = data.data.discriminator_loss.toFixed(4);
+                            log('✅ Updated discriminator loss: ' + data.data.discriminator_loss);
+                        } else {
+                            log('❌ disc-loss element not found');
+                        }
+                        
+                        if (currentEpochElement) {
+                            currentEpochElement.textContent = data.data.epoch;
+                            log('✅ Updated current epoch: ' + data.data.epoch);
+                        } else {
+                            log('❌ current-epoch element not found');
+                        }
+                    }
+                }
+                
+                function updateProgress(data) {
+                    log('📊 Progress update: ' + JSON.stringify(data));
+                    
+                    if (data.type === 'progress') {
+                        log('📊 Processing progress: ' + data.progress_percent + '% for epoch ' + data.epoch);
+                    }
+                }
+                
+                function connectTrainingChannel() {
+                    if (trainingEventSource) {
+                        trainingEventSource.close();
+                    }
+                    
+                    log('🎯 Connecting to training channel...');
+                    trainingEventSource = new EventSource('/events/training');
+                    
+                    trainingEventSource.onopen = function() {
+                        log('🎯 Connected to Training SSE Channel');
+                    };
+                    
+                    trainingEventSource.onmessage = function(event) {
+                        try {
+                            log('🎯 Raw training event received: ' + event.data);
+                            const data = JSON.parse(event.data);
+                            log('🎯 Training data received: ' + JSON.stringify(data));
+                            
+                            if (data.type === 'training_update') {
+                                log('🎯 Updating dashboard with training data: ' + JSON.stringify(data));
+                                updateDashboard(data);
+                            } else if (data.type === 'connection') {
+                                log('🎯 Training channel connected: ' + data.message);
+                            } else {
+                                log('🎯 Unknown training data type: ' + data.type);
+                            }
+                        } catch (error) {
+                            log('🎯 Error parsing training data: ' + error);
+                        }
+                    };
+                    
+                    trainingEventSource.onerror = function(error) {
+                        log('🎯 Training channel connection error: ' + error);
+                    };
+                }
+                
+                function connectProgressChannel() {
+                    if (progressEventSource) {
+                        progressEventSource.close();
+                    }
+                    
+                    log('📊 Connecting to progress channel...');
+                    progressEventSource = new EventSource('/events/progress');
+                    
+                    progressEventSource.onopen = function() {
+                        log('📊 Connected to Progress SSE Channel');
+                    };
+                    
+                    progressEventSource.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log('📊 Progress data received: ' + JSON.stringify(data));
+                            
+                            if (data.type === 'progress') {
+                                log('📊 Updating progress with data: ' + JSON.stringify(data));
+                                updateProgress(data);
+                            } else if (data.type === 'connection') {
+                                log('📊 Progress channel connected: ' + data.message);
+                            } else {
+                                log('📊 Unknown progress data type: ' + data.type);
+                            }
+                        } catch (error) {
+                            log('📊 Progress channel connection error: ' + error);
+                        }
+                    };
+                    
+                    progressEventSource.onerror = function(error) {
+                        log('📊 Progress channel connection error: ' + error);
+                    };
+                }
+                
+                // Connect on page load
+                window.addEventListener('load', function() {
+                    log('🚀 Page loaded, setting up SSE channels');
+                    connectTrainingChannel();
+                    connectProgressChannel();
+                });
+                
+                log('✅ Script loaded');
+            </script>
+        </body>
+        </html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
     async def dashboard(self, request):
         """Main dashboard page."""
         html = """
@@ -357,107 +836,105 @@ class GANDashboard:
                             <a href="/training" class="hover:text-blue-200">Training</a>
                             <a href="/evaluation" class="hover:text-blue-200">Evaluation</a>
                             <a href="/models" class="hover:text-blue-200">Models</a>
+                            <a href="/test_sse_debug" class="hover:text-blue-200">SSE Debug</a>
                         </div>
                     </div>
                 </div>
             </nav>
             
             <div class="max-w-7xl mx-auto px-4 py-8">
-                <!-- Quick Actions Section - Moved to top -->
-                <div class="bg-white rounded-lg shadow-md p-4 mb-6">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-3">Quick Actions</h3>
-                    
-                    <!-- Data Source Selection -->
-                    <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                        <h4 class="text-md font-medium text-gray-700 mb-2">📊 Select Training Data Source</h4>
+                <!-- Quick Actions and Training Data Preview - Side by Side -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <!-- Quick Actions Section - Left Side -->
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">Quick Actions</h3>
                         
-                        <!-- Available Data Sources - Compact Grid -->
-                        <div class="mb-3">
-                            <div class="grid grid-cols-3 gap-2">
-                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('treasury_orderbook_sample.csv', 'orderbook')">
-                                    <div class="w-2 h-2 bg-blue-500 rounded-full mx-auto mb-1"></div>
-                                    <span class="text-xs font-medium">Treasury Orderbook</span>
-                                </div>
-                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_timeseries.csv', 'timeseries')">
-                                    <div class="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1"></div>
-                                    <span class="text-xs font-medium">Yield Curve</span>
-                                </div>
-                                <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_orderbook.csv', 'orderbook')">
-                                    <div class="w-2 h-2 bg-purple-500 rounded-full mx-auto mb-1"></div>
-                                    <span class="text-xs font-medium">Sample Orderbook</span>
+                        <!-- Data Source Selection -->
+                        <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <h4 class="text-md font-medium text-gray-700 mb-2">📊 Select Training Data Source</h4>
+                            
+                            <!-- Available Data Sources - Compact Grid -->
+                            <div class="mb-3">
+                                <div class="grid grid-cols-3 gap-2">
+                                    <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('treasury_orderbook_sample.csv', 'orderbook')">
+                                        <div class="w-2 h-2 bg-blue-500 rounded-full mx-auto mb-1"></div>
+                                        <span class="text-xs font-medium">Treasury Orderbook</span>
+                                    </div>
+                                    <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_timeseries.csv', 'timeseries')">
+                                        <div class="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1"></div>
+                                        <span class="text-xs font-medium">Yield Curve</span>
+                                    </div>
+                                    <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_orderbook.csv', 'orderbook')">
+                                        <div class="w-2 h-2 bg-purple-500 rounded-full mx-auto mb-1"></div>
+                                        <span class="text-xs font-medium">Sample Orderbook</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Custom Upload - Compact Row -->
-                        <div class="flex items-center space-x-3">
-                            <div class="flex-1">
-                                <input type="file" id="csv-file-input" accept=".csv" class="hidden" />
-                                <button id="upload-csv" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 transition-colors">
-                                    📁 Upload CSV
+                            
+                            <!-- Custom Upload - Compact Row -->
+                            <div class="flex items-center space-x-3">
+                                <div class="flex-1">
+                                    <input type="file" id="csv-file-input" accept=".csv" class="hidden" />
+                                    <button id="upload-csv" class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 transition-colors">
+                                        📁 Upload CSV
+                                    </button>
+                                    <span id="selected-file-name" class="ml-2 text-xs text-gray-600"></span>
+                                </div>
+                                <button id="generate-sample" class="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition-colors">
+                                    🔄 Generate Sample
                                 </button>
-                                <span id="selected-file-name" class="ml-2 text-xs text-gray-600"></span>
                             </div>
-                            <button id="generate-sample" class="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition-colors">
-                                🔄 Generate Sample
-                            </button>
+                            
+                            <!-- Selected Data Preview - Compact -->
+                            <div id="selected-data-preview" class="hidden mt-2">
+                                <div id="data-preview-content" class="bg-white rounded border border-gray-200 p-2 text-xs">
+                                    <!-- Data preview content will be populated here -->
+                                </div>
+                            </div>
                         </div>
                         
-                        <!-- Selected Data Preview - Compact -->
-                        <div id="selected-data-preview" class="hidden mt-2">
-                            <div id="data-preview-content" class="bg-white rounded border border-gray-200 p-2 text-xs">
-                                <!-- Data preview content will be populated here -->
+                        <!-- Training Controls - Compact -->
+                        <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <h4 class="text-md font-medium text-blue-700 mb-2">🚀 Training Controls</h4>
+                            <div class="flex items-center justify-between">
+                                <div class="flex space-x-3">
+                                    <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-medium text-sm">
+                                        ▶️ Start Training
+                                    </button>
+                                    <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 transition-colors font-medium text-sm">
+                                        ⏹️ Stop Training
+                                    </button>
+                                </div>
+                                <div id="data-source-indicator" class="text-xs text-gray-600">
+                                    <span class="font-medium">Status:</span> 
+                                    <span id="data-source-status">No data source selected</span>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Training Controls - Compact -->
-                    <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        <h4 class="text-md font-medium text-blue-700 mb-2">🚀 Training Controls</h4>
-                        <div class="flex items-center justify-between">
-                            <div class="flex space-x-3">
-                                <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-medium text-sm">
-                                    ▶️ Start Training
-                                </button>
-                                <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 transition-colors font-medium text-sm">
-                                    ⏹️ Stop Training
-                                </button>
-                            </div>
-                            <div id="data-source-indicator" class="text-xs text-gray-600">
-                                <span class="font-medium">Status:</span> 
-                                <span id="data-source-status">No data source selected</span>
+                    <!-- Sample Data Section - Right Side -->
+                    <div id="data-preview-section" class="bg-white rounded-lg shadow-md p-4" style="display: none;">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">📊 Training Data Preview</h3>
+                        
+                        <!-- Sample Data Table -->
+                        <div>
+                            <h4 class="text-md font-medium text-gray-700 mb-2">Sample Data (First 5 rows)</h4>
+                            <div class="overflow-x-auto">
+                                <div id="data-table-preview" class="bg-gray-50 p-3 rounded-lg">
+                                    <!-- Data table will be populated here -->
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Data Preview Section -->
-                <div id="data-preview-section" class="bg-white rounded-lg shadow-md p-4 mb-6" style="display: none;">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-3">📊 Training Data Preview</h3>
-                    
-                    <!-- Data Info -->
-                    <div id="data-info" class="mb-4 p-3 bg-gray-50 rounded-lg">
-                        <h4 class="text-md font-medium text-gray-700 mb-2">Data Structure</h4>
-                        <div id="data-structure-info" class="text-sm text-gray-600">
-                            <!-- Data structure info will be populated here -->
-                        </div>
-                    </div>
-                    
-                    <!-- Time Series Plot -->
-                    <div class="mb-4">
-                        <h4 class="text-md font-medium text-gray-700 mb-2">Time Series Visualization</h4>
-                        <div class="bg-gray-50 p-3 rounded-lg">
+                <!-- Time Series Visualization - Full Width Below Both Sections -->
+                <div class="mb-6">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3">📈 Time Series Visualization</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
                             <canvas id="dataPreviewChart" width="800" height="300"></canvas>
-                        </div>
-                    </div>
-                    
-                    <!-- Data Table Preview -->
-                    <div>
-                        <h4 class="text-md font-medium text-gray-700 mb-2">Sample Data (First 10 rows)</h4>
-                        <div class="overflow-x-auto">
-                            <div id="data-table-preview" class="bg-gray-50 p-3 rounded-lg">
-                                <!-- Data table will be populated here -->
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -533,7 +1010,132 @@ class GANDashboard:
                 const trainingCtx = document.getElementById('trainingChart').getContext('2d');
                 const scoresCtx = document.getElementById('scoresChart').getContext('2d');
                 
-                const trainingChart = new Chart(trainingCtx, {
+                // Initialize chart reference as null to prevent destroy() errors
+                window.dataPreviewChart = null;
+                
+                // Helper function to safely destroy chart
+                function safeDestroyChart(chart) {
+                    if (chart && typeof chart.destroy === 'function') {
+                        try {
+                            chart.destroy();
+                            return true;
+                        } catch (error) {
+                            console.error('Error destroying chart:', error);
+                            return false;
+                        }
+                    }
+                    return false;
+                }
+                
+                // Initialize data preview section
+                function initializeDataPreview() {
+                    const dataPreviewSection = document.getElementById('data-preview-section');
+                    if (dataPreviewSection) {
+                        // Ensure the section is hidden initially
+                        dataPreviewSection.style.display = 'none';
+                        
+                        // Initialize chart container
+                        const chartElement = document.getElementById('dataPreviewChart');
+                        
+                        if (chartElement) {
+                            console.log('Data preview chart element found and ready');
+                        } else {
+                            console.error('Data preview chart element not found during initialization');
+                        }
+                    }
+                }
+                
+                // Helper function to safely clear chart area
+                function clearChartArea() {
+                    const chartElement = document.getElementById('dataPreviewChart');
+                    if (chartElement && chartElement.parentElement) {
+                        const chartContainer = chartElement.parentElement;
+                        chartContainer.innerHTML = `
+                            <canvas id="dataPreviewChart" width="800" height="300"></canvas>
+                        `;
+                        // Re-initialize the chart element reference
+                        window.dataPreviewChart = null;
+                    }
+                }
+                
+                // Helper function to show loading state
+                function showChartLoading() {
+                    const chartElement = document.getElementById('dataPreviewChart');
+                    if (chartElement && chartElement.parentElement) {
+                        const chartContainer = chartElement.parentElement;
+                        chartContainer.innerHTML = `
+                            <div class="text-center text-blue-500 py-8">
+                                <div class="text-2xl mb-2">⏳</div>
+                                <div class="text-sm">Loading chart...</div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Helper function to safely update chart
+                function safeUpdateChart(plotData) {
+                    try {
+                        const chartElement = document.getElementById('dataPreviewChart');
+                        
+                        if (!chartElement) {
+                            console.error('Chart element not found for update');
+                            return false;
+                        }
+                        
+                        // Use validation helper function
+                        const validation = validateChartData(plotData);
+                        return validation.valid;
+                    } catch (error) {
+                        console.error('Error in safeUpdateChart:', error);
+                        return false;
+                    }
+                }
+                
+                // Helper function to safely handle chart errors
+                function handleChartError(error, context = 'chart operation') {
+                    console.error(`Error in ${context}:`, error);
+                    
+                    const chartElement = document.getElementById('dataPreviewChart');
+                    if (chartElement && chartElement.parentElement) {
+                        const chartContainer = chartElement.parentElement;
+                        chartContainer.innerHTML = `
+                            <div class="text-center text-red-500 py-8">
+                                <div class="text-2xl mb-2">❌</div>
+                                <div class="text-sm">Chart error occurred</div>
+                                <div class="text-xs text-gray-500 mt-1">${error.message || 'Unknown error'}</div>
+                                <button onclick="clearChartArea()" class="mt-2 px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">
+                                    Reset Chart
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    // Reset chart reference
+                    window.dataPreviewChart = null;
+                }
+                
+                // Helper function to safely validate chart data
+                function validateChartData(plotData) {
+                    if (!plotData || typeof plotData !== 'object') {
+                        return { valid: false, error: 'Invalid data format' };
+                    }
+                    
+                    if (Object.keys(plotData).length === 0) {
+                        return { valid: false, error: 'Empty data object' };
+                    }
+                    
+                    const validColumns = Object.keys(plotData).filter(key => 
+                        key !== 'index' && plotData[key] && Array.isArray(plotData[key])
+                    );
+                    
+                    if (validColumns.length === 0) {
+                        return { valid: false, error: 'No numeric data available' };
+                    }
+                    
+                    return { valid: true, columns: validColumns };
+                }
+                
+                window.trainingChart = new Chart(trainingCtx, {
                     type: 'line',
                     data: {
                         labels: [],
@@ -561,7 +1163,7 @@ class GANDashboard:
                     }
                 });
                 
-                const scoresChart = new Chart(scoresCtx, {
+                window.scoresChart = new Chart(scoresCtx, {
                     type: 'line',
                     data: {
                         labels: [],
@@ -590,6 +1192,23 @@ class GANDashboard:
                     }
                 });
                 
+                // Initialize data preview when page loads
+                document.addEventListener('DOMContentLoaded', function() {
+                    initializeDataPreview();
+                    
+                    // Add global error handler for chart operations
+                    window.addEventListener('error', function(event) {
+                        if (event.message && event.message.includes('dataPreviewChart')) {
+                            console.error('Chart error detected:', event.error);
+                            // Try to recover by reinitializing
+                            setTimeout(() => {
+                                clearChartArea();
+                                window.dataPreviewChart = null;
+                            }, 100);
+                        }
+                    });
+                });
+                
                 // Connect to separate SSE channels like test_separate_channels.py
                 let trainingEventSource = null;
                 let progressEventSource = null;
@@ -604,23 +1223,35 @@ class GANDashboard:
                     
                     trainingEventSource.onopen = function() {
                         console.log('🎯 Connected to Training SSE Channel');
-                        document.getElementById('training-status').textContent = 'Connected';
                     };
                     
                     trainingEventSource.onmessage = function(event) {
-                        const data = JSON.parse(event.data);
-                        console.log('🎯 Training data received:', data);
-                        
-                        if (data.type === 'training_update') {
-                            updateDashboard(data);
-                        } else if (data.type === 'connection') {
-                            console.log('🎯 Training channel connected:', data.message);
+                        try {
+                            console.log('🎯 Raw training event received:', event);
+                            const data = JSON.parse(event.data);
+                            console.log('🎯 Training data received:', data);
+                            
+                            if (data.type === 'training_update') {
+                                console.log('🎯 Updating dashboard with training data:', data);
+                                updateDashboard(data);
+                            } else if (data.type === 'training_complete') {
+                                console.log('🎯 Training completed:', data);
+                                updateDashboard(data);
+                            } else if (data.type === 'training_start') {
+                                console.log('🎯 Training started:', data);
+                                updateDashboard(data);
+                            } else if (data.type === 'connection') {
+                                console.log('🎯 Training channel connected:', data.message);
+                            } else {
+                                console.log('🎯 Unknown training data type:', data.type, data);
+                            }
+                        } catch (error) {
+                            console.error('🎯 Error parsing training data:', error, event.data);
                         }
                     };
                     
-                    trainingEventSource.onerror = function() {
-                        console.error('🎯 Training channel connection error');
-                        document.getElementById('training-status').textContent = 'Disconnected';
+                    trainingEventSource.onerror = function(error) {
+                        console.error('🎯 Training channel connection error:', error);
                     };
                 }
                 
@@ -633,23 +1264,28 @@ class GANDashboard:
                     
                     progressEventSource.onopen = function() {
                         console.log('📊 Connected to Progress SSE Channel');
-                        document.getElementById('progress-status').textContent = 'Connected';
                     };
                     
                     progressEventSource.onmessage = function(event) {
-                        const data = JSON.parse(event.data);
-                        console.log('📊 Progress data received:', data);
-                        
-                        if (data.type === 'progress') {
-                            updateProgress(data);
-                        } else if (data.type === 'connection') {
-                            console.log('📊 Progress channel connected:', data.message);
+                        try {
+                            const data = JSON.parse(event.data);
+                            console.log('📊 Progress data received:', data);
+                            
+                            if (data.type === 'progress') {
+                                console.log('📊 Updating progress with data:', data);
+                                updateProgress(data);
+                            } else if (data.type === 'connection') {
+                                console.log('📊 Progress channel connected:', data.message);
+                            } else {
+                                console.log('📊 Unknown progress data type:', data.type, data);
+                            }
+                        } catch (error) {
+                            console.error('📊 Error parsing progress data:', error, event.data);
                         }
                     };
                     
-                    progressEventSource.onerror = function() {
-                        console.error('📊 Progress channel connection error');
-                        document.getElementById('progress-status').textContent = 'Disconnected';
+                    progressEventSource.onerror = function(error) {
+                        console.error('📊 Progress channel connection error:', error);
                     };
                 }
                 
@@ -702,23 +1338,75 @@ class GANDashboard:
                 
                 function updateDashboard(data) {
                     console.log('🎯 Updating dashboard with:', data);
+                    console.log('🎯 Data type:', data.type);
+                    console.log('🎯 Data content:', JSON.stringify(data, null, 2));
                     
                     if (data.type === 'training_update') {
+                        console.log('🎯 Processing training update:', data.data);
+                        
+                        // Update training status to Running when we receive training data
+                        const statusElement = document.getElementById('status-text');
+                        console.log('🎯 Looking for status-text element:', statusElement);
+                        if (statusElement) {
+                            statusElement.textContent = 'Running';
+                            statusElement.className = 'text-xl font-bold text-green-600';
+                            console.log('✅ Updated training status to Running');
+                        } else {
+                            console.error('❌ status-text element not found');
+                        }
+                        
                         // Update status cards
-                        document.getElementById('gen-loss').textContent = data.data.generator_loss.toFixed(4);
-                        document.getElementById('disc-loss').textContent = data.data.discriminator_loss.toFixed(4);
-                        document.getElementById('current-epoch').textContent = data.data.epoch;
+                        const genLossElement = document.getElementById('gen-loss');
+                        const discLossElement = document.getElementById('disc-loss');
+                        const currentEpochElement = document.getElementById('current-epoch');
+                        
+                        console.log('🎯 Found elements:', {
+                            genLoss: genLossElement,
+                            discLoss: discLossElement,
+                            currentEpoch: currentEpochElement
+                        });
+                        
+                        if (genLossElement) {
+                            genLossElement.textContent = data.data.generator_loss.toFixed(4);
+                            console.log('✅ Updated generator loss:', data.data.generator_loss);
+                        } else {
+                            console.error('❌ gen-loss element not found');
+                        }
+                        
+                        if (discLossElement) {
+                            discLossElement.textContent = data.data.discriminator_loss.toFixed(4);
+                            console.log('✅ Updated discriminator loss:', data.data.discriminator_loss);
+                        } else {
+                            console.error('❌ disc-loss element not found');
+                        }
+                        
+                        if (currentEpochElement) {
+                            currentEpochElement.textContent = data.data.epoch;
+                            console.log('✅ Updated current epoch:', data.data.epoch);
+                        } else {
+                            console.error('❌ current-epoch element not found');
+                        }
                         
                         // Update charts
-                        trainingChart.data.labels.push(data.data.epoch);
-                        trainingChart.data.datasets[0].data.push(data.data.generator_loss);
-                        trainingChart.data.datasets[1].data.push(data.data.discriminator_loss);
-                        trainingChart.update();
+                        if (window.trainingChart) {
+                            window.trainingChart.data.labels.push(data.data.epoch);
+                            window.trainingChart.data.datasets[0].data.push(data.data.generator_loss);
+                            window.trainingChart.data.datasets[1].data.push(data.data.discriminator_loss);
+                            window.trainingChart.update();
+                            console.log('✅ Updated training chart');
+                        } else {
+                            console.error('❌ trainingChart not found');
+                        }
                         
-                        scoresChart.data.labels.push(data.data.epoch);
-                        scoresChart.data.datasets[0].data.push(data.data.real_scores);
-                        scoresChart.data.datasets[1].data.push(data.data.fake_scores);
-                        scoresChart.update();
+                        if (window.scoresChart) {
+                            window.scoresChart.data.labels.push(data.data.epoch);
+                            window.scoresChart.data.datasets[0].data.push(data.data.real_scores);
+                            window.scoresChart.data.datasets[1].data.push(data.data.fake_scores);
+                            window.scoresChart.update();
+                            console.log('✅ Updated scores chart');
+                        } else {
+                            console.error('❌ scoresChart not found');
+                        }
                         
                     } else if (data.type === 'training_start') {
                         console.log('🚀 Training started:', data.data);
@@ -1013,65 +1701,40 @@ class GANDashboard:
                                 displayDataPreview(result.data_info, result.plot_data, filename);
                             } else {
                                 console.error('Error loading data preview:', result.error);
+                                // Show error message in the table preview section
+                                document.getElementById('data-table-preview').innerHTML = `
+                                    <div class="text-center text-red-500 py-4">
+                                        <div class="text-sm">❌ Error loading data: ${result.error}</div>
+                                    </div>
+                                `;
                             }
                         } catch (error) {
                             console.error('Error loading data preview:', error);
+                            // Show error message in the table preview section
+                            document.getElementById('data-table-preview').innerHTML = `
+                                <div class="text-center text-red-500 py-4">
+                                    <div class="text-sm">❌ Network error: ${error.message}</div>
+                                </div>
+                            `;
                         }
                     }
                     
                     function displayDataPreview(dataInfo, plotData, filename) {
-                        // Update data structure info
-                        const structureInfo = document.getElementById('data-structure-info');
-                        structureInfo.innerHTML = `
-                            <div class="grid grid-cols-2 gap-4 text-sm">
-                                <div><span class="font-medium">Filename:</span> ${filename}</div>
-                                <div><span class="font-medium">Data Type:</span> ${dataInfo.data_type}</div>
-                                <div><span class="font-medium">Rows:</span> ${dataInfo.row_count}</div>
-                                <div><span class="font-medium">Columns:</span> ${dataInfo.column_count}</div>
-                                <div><span class="font-medium">Numeric Columns:</span> ${dataInfo.numeric_columns.length}</div>
-                                <div><span class="font-medium">Categorical Columns:</span> ${dataInfo.categorical_columns.length}</div>
-                            </div>
-                        `;
-                        
-                        // Update time series plot if we have plot data
+                        // Create chart for the single location
                         if (plotData && Object.keys(plotData).length > 1) {
-                            const ctx = document.getElementById('dataPreviewChart').getContext('2d');
+                            createChartForElement('dataPreviewChart', plotData, 'Time Series Visualization');
+                        } else {
+                            // Show message when no plot data available
+                            const chartElement = document.getElementById('dataPreviewChart');
                             
-                            // Destroy existing chart if it exists
-                            if (window.dataPreviewChart) {
-                                window.dataPreviewChart.destroy();
+                            if (chartElement && chartElement.parentElement) {
+                                chartElement.parentElement.innerHTML = `
+                                    <div class="text-center text-gray-500 py-8">
+                                        <div class="text-2xl mb-2">📊</div>
+                                        <div class="text-sm">No numeric data available for visualization</div>
+                                    </div>
+                                `;
                             }
-                            
-                            const datasets = [];
-                            const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
-                            
-                            Object.keys(plotData).forEach((key, index) => {
-                                if (key !== 'index') {
-                                    datasets.push({
-                                        label: key,
-                                        data: plotData[key],
-                                        borderColor: colors[index % colors.length],
-                                        backgroundColor: colors[index % colors.length] + '20',
-                                        tension: 0.1
-                                    });
-                                }
-                            });
-                            
-                            window.dataPreviewChart = new Chart(ctx, {
-                                type: 'line',
-                                data: {
-                                    labels: plotData.index || [],
-                                    datasets: datasets
-                                },
-                                options: {
-                                    responsive: true,
-                                    scales: {
-                                        y: {
-                                            beginAtZero: true
-                                        }
-                                    }
-                                }
-                            });
                         }
                         
                         // Update data table preview
@@ -1082,19 +1745,26 @@ class GANDashboard:
                                 <table class="w-full text-xs">
                                     <thead>
                                         <tr class="bg-gray-200">
-                                            ${headers.map(h => `<th class="p-2 text-left">${h}</th>`).join('')}
+                                            ${headers.map(h => `<th class="p-2 text-left font-medium">${h}</th>`).join('')}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${dataInfo.sample_data.slice(0, 10).map(row => 
-                                            `<tr class="border-b border-gray-200">
-                                                ${headers.map(h => `<td class="p-2">${row[h]}</td>`).join('')}
+                                        ${dataInfo.sample_data.map(row => 
+                                            `<tr class="border-b border-gray-200 hover:bg-gray-100">
+                                                ${headers.map(h => `<td class="p-2">${row[h] !== null ? row[h] : '-'}</td>`).join('')}
                                             </tr>`
                                         ).join('')}
                                     </tbody>
                                 </table>
                             `;
                             tablePreview.innerHTML = tableHTML;
+                        } else {
+                            // Show message when no sample data available
+                            tablePreview.innerHTML = `
+                                <div class="text-center text-gray-500 py-4">
+                                    <div class="text-sm">No sample data available</div>
+                                </div>
+                            `;
                         }
                     }
                     
@@ -1192,37 +1862,10 @@ class GANDashboard:
                 // Show data preview
                 function showDataPreview(dataInfo, plotData, filename) {
                     const previewSection = document.getElementById('data-preview-section');
-                    const structureInfo = document.getElementById('data-structure-info');
                     const tablePreview = document.getElementById('data-table-preview');
                     
                     // Show the preview section
                     previewSection.style.display = 'block';
-                    
-                    // Update data structure info
-                    let structureHTML = `
-                        <div class="grid grid-cols-2 gap-4 text-sm">
-                            <div><strong>File:</strong> ${filename}</div>
-                            <div><strong>Shape:</strong> ${dataInfo.shape[0]} rows × ${dataInfo.shape[1]} columns</div>
-                            <div><strong>Data Type:</strong> ${dataInfo.data_type}</div>
-                            <div><strong>Numeric Columns:</strong> ${dataInfo.numeric_columns.length}</div>
-                        </div>
-                    `;
-                    
-                    if (dataInfo.data_type === 'multi_level_order_book') {
-                        structureHTML += `
-                            <div class="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
-                                <strong>Order Book Structure:</strong>
-                                <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                    <div><strong>Bid Columns:</strong> ${dataInfo.order_book_info.bid_columns.join(', ') || 'None'}</div>
-                                    <div><strong>Ask Columns:</strong> ${dataInfo.order_book_info.ask_columns.join(', ') || 'None'}</div>
-                                    <div><strong>Price Columns:</strong> ${dataInfo.order_book_info.price_columns.join(', ') || 'None'}</div>
-                                    <div><strong>Size Columns:</strong> ${dataInfo.order_book_info.size_columns.join(', ') || 'None'}</div>
-                                </div>
-                            </div>
-                        `;
-                    }
-                    
-                    structureInfo.innerHTML = structureHTML;
                     
                     // Update data table preview
                     if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
@@ -1264,68 +1907,112 @@ class GANDashboard:
                 
                 // Create data preview chart
                 function createDataPreviewChart(plotData) {
-                    const ctx = document.getElementById('dataPreviewChart').getContext('2d');
-                    
-                    // Destroy existing chart if it exists
-                    if (window.dataPreviewChart) {
-                        window.dataPreviewChart.destroy();
+                    // Create chart for the single location
+                    createChartForElement('dataPreviewChart', plotData, 'Time Series Visualization');
+                }
+                
+                // Helper function to create chart for a specific element
+                function createChartForElement(elementId, plotData, chartTitle) {
+                    const chartElement = document.getElementById(elementId);
+                    if (!chartElement) {
+                        console.error(`Chart element ${elementId} not found`);
+                        return;
                     }
+                    
+                    // Validate plot data using helper function
+                    const validation = validateChartData(plotData);
+                    if (!validation.valid) {
+                        console.error('Data validation failed:', validation.error);
+                        const chartContainer = chartElement.parentElement;
+                        if (chartContainer) {
+                            chartContainer.innerHTML = `
+                                <div class="text-center text-red-500 py-8">
+                                    <div class="text-2xl mb-2">❌</div>
+                                    <div class="text-sm">${validation.error}</div>
+                                    <div class="text-xs text-gray-500 mt-1">Please check your data format</div>
+                                </div>
+                            `;
+                        }
+                        return;
+                    }
+                    
+                    const ctx = chartElement.getContext('2d');
+                    
+                    // Destroy existing chart if it exists and has destroy method
+                    const existingChart = window[elementId + 'Chart'];
+                    safeDestroyChart(existingChart);
                     
                     const datasets = [];
                     const colors = ['rgb(59, 130, 246)', 'rgb(239, 68, 68)', 'rgb(34, 197, 94)', 'rgb(168, 85, 247)', 'rgb(245, 158, 11)'];
                     
-                    Object.keys(plotData).forEach((column, index) => {
-                        if (column !== 'index' && plotData[column]) {
-                            datasets.push({
-                                label: column,
-                                data: plotData[column],
-                                borderColor: colors[index % colors.length],
-                                backgroundColor: colors[index % colors.length].replace('rgb', 'rgba').replace(')', ', 0.1)'),
-                                tension: 0.1,
-                                pointRadius: 2
-                            });
-                        }
+                    validation.columns.forEach((column, index) => {
+                        datasets.push({
+                            label: column,
+                            data: plotData[column],
+                            borderColor: colors[index % colors.length],
+                            backgroundColor: colors[index % colors.length].replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                            tension: 0.1,
+                            pointRadius: 2
+                        });
                     });
                     
-                    window.dataPreviewChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: plotData.index || [],
-                            datasets: datasets
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: {
-                                    title: {
-                                        display: true,
-                                        text: 'Time Index'
-                                    }
-                                },
-                                y: {
-                                    title: {
-                                        display: true,
-                                        text: 'Value'
-                                    }
-                                }
+                    try {
+                        const newChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: plotData.index || [],
+                                datasets: datasets
                             },
-                            plugins: {
-                                title: {
-                                    display: true,
-                                    text: 'Training Data Time Series Preview'
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    x: {
+                                        title: {
+                                            display: true,
+                                            text: 'Time Index'
+                                        }
+                                    },
+                                    y: {
+                                        title: {
+                                            display: true,
+                                            text: 'Value'
+                                        }
+                                    }
                                 },
-                                legend: {
-                                    position: 'top'
+                                plugins: {
+                                    title: {
+                                        display: true,
+                                        text: chartTitle
+                                    },
+                                    legend: {
+                                        position: 'top'
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
+                        
+                        // Store chart reference
+                        window[elementId + 'Chart'] = newChart;
+                        console.log(`Chart ${elementId} created successfully`);
+                    } catch (error) {
+                        handleChartError(error, 'chart creation');
+                    }
                 }
                 
                 // Data source selection function
                 async function selectDataSource(filename, dataType) {
                     try {
+                        // Safely destroy existing chart before switching data sources
+                        safeDestroyChart(window.dataPreviewChart);
+                        window.dataPreviewChart = null;
+                        
+                        // Clear and reset chart area
+                        clearChartArea();
+                        
+                        // Show loading state
+                        showChartLoading();
+                        
                         // Update visual selection
                         document.querySelectorAll('[onclick^="selectDataSource"]').forEach(el => {
                             el.classList.remove('border-blue-500', 'bg-blue-50');
@@ -1349,15 +2036,25 @@ class GANDashboard:
                             showDataSourceStatus(`CSV Dataset: ${filename}`);
                         } else {
                             console.error('Error getting preview:', previewResult.error);
+                            // Show error in chart area
+                            handleChartError(new Error(previewResult.error), 'data preview loading');
                         }
                     } catch (error) {
                         console.error('Error selecting data source:', error);
+                        // Show error in chart area
+                        handleChartError(error, 'data source selection');
                     }
                 }
                 
                 // Show selected data preview in the selector
                 function showSelectedDataPreview(dataInfo, plotData, filename, dataType) {
                     const previewSection = document.getElementById('selected-data-preview');
+                    const mainPreviewSection = document.getElementById('data-preview-section');
+                    
+                    // Show the main data preview section
+                    if (mainPreviewSection) {
+                        mainPreviewSection.style.display = 'block';
+                    }
                     const previewContent = document.getElementById('data-preview-content');
                     
                     // Show the preview section
@@ -2121,13 +2818,16 @@ class GANDashboard:
             
             # Analyze data structure
             data_info = {
-                "shape": df.shape,
+                "data_type": "time_series",  # Default type
+                "row_count": len(df),
+                "column_count": len(df.columns),
                 "columns": df.columns.tolist(),
                 "dtypes": df.dtypes.astype(str).to_dict(),
                 "missing_values": df.isnull().sum().to_dict(),
                 "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
+                "categorical_columns": df.select_dtypes(include=['object']).columns.tolist(),
                 "datetime_columns": df.select_dtypes(include=['datetime64']).columns.tolist(),
-                "sample_data": df.head(10).to_dict('records'),
+                "sample_data": df.head(5).to_dict('records'),  # First 5 rows for preview
                 "summary_stats": {}
             }
             
@@ -2148,20 +2848,22 @@ class GANDashboard:
                     "size_columns": [col for col in df.columns if 'size' in col.lower()],
                     "level_columns": [col for col in df.columns if 'level' in col.lower()]
                 }
-            else:
-                data_info["data_type"] = "time_series"
             
-            # Get time series data for plotting (first 100 rows to avoid overwhelming)
+            # Get time series data for plotting (first 50 rows to avoid overwhelming)
             plot_data = {}
             if len(df) > 0:
-                sample_size = min(100, len(df))
+                sample_size = min(50, len(df))
                 sample_df = df.tail(sample_size)  # Use most recent data
                 
-                for col in data_info["numeric_columns"][:5]:  # Limit to first 5 numeric columns
+                # Limit to first 5 numeric columns for visualization
+                numeric_cols = data_info["numeric_columns"][:5]
+                for col in numeric_cols:
                     plot_data[col] = sample_df[col].tolist()
                 
                 # Add index for x-axis
                 plot_data["index"] = list(range(sample_size))
+            
+            logger.info(f"CSV preview generated for {filename}: {data_info['row_count']} rows, {data_info['column_count']} columns")
             
             return web.json_response({
                 "success": True,

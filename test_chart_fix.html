@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Chart Fix</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Test Chart Fix</h1>
+    
+    <div>
+        <button onclick="testChartCreation()">Test Chart Creation</button>
+        <button onclick="testChartDestruction()">Test Chart Destruction</button>
+        <button onclick="testChartReset()">Test Chart Reset</button>
+    </div>
+    
+    <div style="width: 400px; height: 200px; margin: 20px;">
+        <canvas id="testChart"></canvas>
+    </div>
+    
+    <div id="status"></div>
+    
+    <script>
+        // Initialize chart as null to prevent destroy() errors
+        window.testChart = null;
+        
+        // Helper function to safely destroy chart
+        function safeDestroyChart(chart) {
+            if (chart && typeof chart.destroy === 'function') {
+                try {
+                    chart.destroy();
+                    return true;
+                } catch (error) {
+                    console.error('Error destroying chart:', error);
+                    return false;
+                }
+            }
+            return false;
+        }
+        
+        function testChartCreation() {
+            const statusDiv = document.getElementById('status');
+            const canvas = document.getElementById('testChart');
+            
+            if (!canvas) {
+                statusDiv.innerHTML = '❌ Canvas element not found';
+                return;
+            }
+            
+            try {
+                // Safely destroy existing chart
+                safeDestroyChart(window.testChart);
+                
+                const ctx = canvas.getContext('2d');
+                window.testChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+                        datasets: [{
+                            label: 'Test Data',
+                            data: [12, 19, 3, 5, 2],
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
+                
+                statusDiv.innerHTML = '✅ Chart created successfully';
+                console.log('Chart created successfully');
+            } catch (error) {
+                statusDiv.innerHTML = `❌ Chart creation failed: ${error.message}`;
+                console.error('Error creating chart:', error);
+                window.testChart = null;
+            }
+        }
+        
+        function testChartDestruction() {
+            const statusDiv = document.getElementById('status');
+            
+            if (safeDestroyChart(window.testChart)) {
+                statusDiv.innerHTML = '✅ Chart destroyed successfully';
+                window.testChart = null;
+            } else {
+                statusDiv.innerHTML = '❌ Chart destruction failed or chart was null';
+            }
+        }
+        
+        function testChartReset() {
+            const statusDiv = document.getElementById('status');
+            
+            // Test destroying null chart
+            safeDestroyChart(null);
+            
+            // Test destroying undefined chart
+            safeDestroyChart(undefined);
+            
+            // Test destroying non-chart object
+            safeDestroyChart({});
+            
+            statusDiv.innerHTML = '✅ Chart reset tests completed (should not crash)';
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = '🚀 Page loaded, ready to test charts';
+        });
+    </script>
+</body>
+</html> 

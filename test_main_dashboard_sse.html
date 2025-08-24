@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Main Dashboard SSE Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <h1>Main Dashboard SSE Test</h1>
+    
+    <!-- Training Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="card">
+            <div class="flex items-center">
+                <div class="p-2 rounded-full bg-blue-100 text-blue-600">📊</div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-semibold text-gray-700">Training Status</h3>
+                    <p id="status-text" class="text-xl font-bold text-blue-600">Idle</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="flex items-center">
+                <div class="p-2 rounded-full bg-green-100 text-green-600">📈</div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-semibold text-gray-700">Generator Loss</h3>
+                    <p id="gen-loss" class="text-xl font-bold text-green-600">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="flex items-center">
+                <div class="p-2 rounded-full bg-red-100 text-red-600">📉</div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-semibold text-gray-700">Discriminator Loss</h3>
+                    <p id="disc-loss" class="text-xl font-bold text-red-600">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="flex items-center">
+                <div class="p-2 rounded-full bg-purple-100 text-purple-600">⏰</div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-semibold text-gray-700">Epoch</h3>
+                    <p id="current-epoch" class="text-xl font-bold text-purple-600">-</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="console-log" style="height: 300px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+    
+    <script>
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        // Simulate the main dashboard's SSE functionality
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function updateDashboard(data) {
+            log('🎯 Updating dashboard with: ' + JSON.stringify(data));
+            
+            if (data.type === 'training_update') {
+                log('🎯 Processing training update: ' + JSON.stringify(data.data));
+                
+                // Update training status to Running when we receive training data
+                const statusElement = document.getElementById('status-text');
+                log('🎯 Looking for status-text element: ' + statusElement);
+                if (statusElement) {
+                    statusElement.textContent = 'Running';
+                    statusElement.className = 'text-xl font-bold text-green-600';
+                    log('✅ Updated training status to Running');
+                } else {
+                    log('❌ status-text element not found');
+                }
+                
+                // Update status cards
+                const genLossElement = document.getElementById('gen-loss');
+                const discLossElement = document.getElementById('disc-loss');
+                const currentEpochElement = document.getElementById('current-epoch');
+                
+                log('🎯 Found elements: ' + JSON.stringify({
+                    genLoss: genLossElement,
+                    discLoss: discLossElement,
+                    currentEpoch: currentEpochElement
+                }));
+                
+                if (genLossElement) {
+                    genLossElement.textContent = data.data.generator_loss.toFixed(4);
+                    log('✅ Updated generator loss: ' + data.data.generator_loss);
+                } else {
+                    log('❌ gen-loss element not found');
+                }
+                
+                if (discLossElement) {
+                    discLossElement.textContent = data.data.discriminator_loss.toFixed(4);
+                    log('✅ Updated discriminator loss: ' + data.data.discriminator_loss);
+                } else {
+                    log('❌ disc-loss element not found');
+                }
+                
+                if (currentEpochElement) {
+                    currentEpochElement.textContent = data.data.epoch;
+                    log('✅ Updated current epoch: ' + data.data.epoch);
+                } else {
+                    log('❌ current-epoch element not found');
+                }
+            }
+        }
+        
+        function updateProgress(data) {
+            log('📊 Progress update: ' + JSON.stringify(data));
+            
+            if (data.type === 'progress') {
+                log('📊 Processing progress: ' + data.progress_percent + '% for epoch ' + data.epoch);
+            }
+        }
+        
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('🎯 Connected to Training SSE Channel');
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    log('🎯 Raw training event received: ' + event.data);
+                    const data = JSON.parse(event.data);
+                    log('🎯 Training data received: ' + JSON.stringify(data));
+                    
+                    if (data.type === 'training_update') {
+                        log('🎯 Updating dashboard with training data: ' + JSON.stringify(data));
+                        updateDashboard(data);
+                    } else if (data.type === 'connection') {
+                        log('🎯 Training channel connected: ' + data.message);
+                    } else {
+                        log('🎯 Unknown training data type: ' + data.type);
+                    }
+                } catch (error) {
+                    log('🎯 Error parsing training data: ' + error);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log('🎯 Training channel connection error: ' + error);
+            };
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...');
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('📊 Connected to Progress SSE Channel');
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log('📊 Progress data received: ' + JSON.stringify(data));
+                    
+                    if (data.type === 'progress') {
+                        log('📊 Updating progress with data: ' + JSON.stringify(data));
+                        updateProgress(data);
+                    } else if (data.type === 'connection') {
+                        log('📊 Progress channel connected: ' + data.message);
+                    } else {
+                        log('📊 Unknown progress data type: ' + data.type);
+                    }
+                } catch (error) {
+                    log('📊 Error parsing progress data: ' + error);
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log('📊 Progress channel connection error: ' + error);
+            };
+        }
+        
+        // Connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, setting up SSE channels');
+            connectTrainingChannel();
+            connectProgressChannel();
+        });
+        
+        log('✅ Script loaded');
+    </script>
+</body>
+</html> 

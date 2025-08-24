@@ -193,6 +193,9 @@ class ConditionalGenerator(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
     
     def forward(self, z: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         """
@@ -386,14 +389,10 @@ def create_wgan_models(config: dict, device: torch.device) -> Tuple[nn.Module, n
     model_config = config['model']
     data_config = config['data']
     
-    instrument_count = len(config.get('instruments', ['2Y', '5Y', '10Y', '30Y']))
-    # Calculate total features: instruments + spreads + volatility features
-    num_features = instrument_count + 3 + instrument_count  # instruments + spreads + volatility
-    
     # Extract parameters
     latent_dim = model_config['generator']['latent_dim']
     hidden_dims = model_config['generator']['hidden_dims']
-    output_dim = num_features
+    output_dim = data_config['num_features']
     sequence_length = data_config['sequence_length']
     dropout = model_config['generator']['dropout']
     

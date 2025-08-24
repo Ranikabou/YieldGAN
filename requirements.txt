@@ -1,14 +1,31 @@
+# Core dependencies for Treasury GAN Training
+torch>=1.9.0
+torchvision>=0.10.0
 numpy>=1.21.0
-pandas>=1.5.0
-torch>=2.0.0
-torchvision>=0.15.0
-matplotlib>=3.5.0
-seaborn>=0.11.0
+pandas>=1.3.0
 scikit-learn>=1.0.0
-yfinance>=0.2.0
-requests>=2.25.0
+matplotlib>=3.4.0
+seaborn>=0.11.0
+scipy>=1.7.0
+
+# Web framework and SSE
+aiohttp>=3.8.0
+aiofiles>=0.8.0
+
+# Data processing
+joblib>=1.1.0
+tqdm>=4.62.0
+
+# Configuration
+pyyaml>=6.0
+
+# Optional: GPU support
+# torch-cuda>=1.9.0  # Uncomment if using CUDA
+
+# Optional: Additional visualization
 plotly>=5.0.0
-tqdm>=4.60.0
+kaleido>=0.2.1  # For static plot export
+
+# Optional: Jupyter support
 jupyter>=1.0.0
-ipykernel>=6.0.0
-pyyaml>=6.0 
+ipywidgets>=7.6.0 

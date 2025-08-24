@@ -1,1 +1,1 @@
-# Evaluation package for treasury GAN project 
+# Evaluation package for GAN metrics 

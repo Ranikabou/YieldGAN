@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/Users/rani/Desktop/Projects 2025/treasury -train-gans-adverserial copy/treasury_gan_env/bin/python3" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from isympy import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

@@ -1,0 +1,14 @@
+[server]
+# Enable auto-refresh on file changes
+runOnSave = true
+
+[browser]
+# Disable browser caching for development
+gatherUsageStats = false
+
+[theme]
+# Custom theme for better appearance
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730" 

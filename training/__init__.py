@@ -1,1 +1,1 @@
-# Training package for treasury GAN project 
+# Training package for GAN models 

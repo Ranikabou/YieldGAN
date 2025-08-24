@@ -1,1 +1,1 @@
-# Models package for treasury GAN project 
+# Models package for GAN architectures 

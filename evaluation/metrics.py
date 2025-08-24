@@ -1,477 +1,336 @@
 """
-Evaluation metrics for treasury GAN synthetic data.
-Implements statistical tests, distribution comparisons, and financial metrics.
+Evaluation metrics for Treasury GAN models.
+Implements various metrics to assess the quality of generated synthetic data.
 """
 
 import numpy as np
-import pandas as pd
-import torch
-from scipy import stats
-from scipy.stats import ks_2samp, wasserstein_distance
-from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Dict, List, Tuple, Optional
+from scipy import stats
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
-class TreasuryDataEvaluator:
-    """
-    Evaluates the quality of synthetic treasury data against real data.
-    """
-    
-    def __init__(self, real_data: np.ndarray, synthetic_data: np.ndarray):
-        """
-        Initialize evaluator with real and synthetic data.
-        
-        Args:
-            real_data: Real treasury data array
-            synthetic_data: Synthetic treasury data array
-        """
-        self.real_data = real_data
-        self.synthetic_data = synthetic_data
-        
-        # Ensure data has same shape
-        if real_data.shape != synthetic_data.shape:
-            raise ValueError("Real and synthetic data must have the same shape")
-        
-        self.n_samples, self.sequence_length, self.n_features = real_data.shape
-        
-    def basic_statistics(self) -> Dict[str, np.ndarray]:
-        """
-        Calculate basic statistics for both datasets.
-        
-        Returns:
-            Dictionary with mean, std, min, max for each dataset
-        """
-        logger.info("Calculating basic statistics")
-        
-        # Flatten data for statistics
-        real_flat = self.real_data.reshape(-1, self.n_features)
-        synthetic_flat = self.synthetic_data.reshape(-1, self.n_features)
-        
-        stats_dict = {
-            'real': {
-                'mean': np.mean(real_flat, axis=0),
-                'std': np.std(real_flat, axis=0),
-                'min': np.min(real_flat, axis=0),
-                'max': np.max(real_flat, axis=0),
-                'median': np.median(real_flat, axis=0)
-            },
-            'synthetic': {
-                'mean': np.mean(synthetic_flat, axis=0),
-                'std': np.std(synthetic_flat, axis=0),
-                'min': np.min(synthetic_flat, axis=0),
-                'max': np.max(synthetic_flat, axis=0),
-                'median': np.median(synthetic_flat, axis=0)
-            }
-        }
-        
-        return stats_dict
-    
-    def distribution_similarity(self) -> Dict[str, np.ndarray]:
-        """
-        Calculate distribution similarity metrics.
-        
-        Returns:
-            Dictionary with KS test statistics and p-values
-        """
-        logger.info("Calculating distribution similarity")
-        
-        real_flat = self.real_data.reshape(-1, self.n_features)
-        synthetic_flat = self.synthetic_data.reshape(-1, self.n_features)
-        
-        ks_stats = []
-        ks_pvalues = []
-        wasserstein_distances = []
-        
-        for feature_idx in range(self.n_features):
-            real_feature = real_flat[:, feature_idx]
-            synthetic_feature = synthetic_flat[:, feature_idx]
-            
-            # KS test
-            ks_stat, ks_pvalue = ks_2samp(real_feature, synthetic_feature)
-            ks_stats.append(ks_stat)
-            ks_pvalues.append(ks_pvalue)
-            
-            # Wasserstein distance
-            w_dist = wasserstein_distance(real_feature, synthetic_feature)
-            wasserstein_distances.append(w_dist)
-        
-        return {
-            'ks_statistics': np.array(ks_stats),
-            'ks_pvalues': np.array(ks_pvalues),
-            'wasserstein_distances': np.array(wasserstein_distances)
-        }
-    
-    def correlation_analysis(self) -> Dict[str, np.ndarray]:
-        """
-        Analyze correlations between features.
-        
-        Returns:
-            Dictionary with correlation matrices
-        """
-        logger.info("Analyzing feature correlations")
-        
-        real_flat = self.real_data.reshape(-1, self.n_features)
-        synthetic_flat = self.synthetic_data.reshape(-1, self.n_features)
-        
-        # Handle NaN values
-        real_flat = np.nan_to_num(real_flat, nan=0.0)
-        synthetic_flat = np.nan_to_num(synthetic_flat, nan=0.0)
-        
-        real_corr = np.corrcoef(real_flat.T)
-        synthetic_corr = np.corrcoef(synthetic_flat.T)
-        
-        # Handle NaN values in correlation matrices
-        real_corr = np.nan_to_num(real_corr, nan=0.0)
-        synthetic_corr = np.nan_to_num(synthetic_corr, nan=0.0)
-        
-        # Correlation difference
-        corr_diff = np.abs(real_corr - synthetic_corr)
-        
-        # Calculate MSE only if both matrices are finite
-        if np.all(np.isfinite(real_corr)) and np.all(np.isfinite(synthetic_corr)):
-            correlation_mse = mean_squared_error(real_corr.flatten(), synthetic_corr.flatten())
-        else:
-            correlation_mse = float('inf')
-        
-        return {
-            'real_correlation': real_corr,
-            'synthetic_correlation': synthetic_corr,
-            'correlation_difference': corr_diff,
-            'correlation_mse': correlation_mse
-        }
-    
-    def temporal_dynamics(self) -> Dict[str, np.ndarray]:
-        """
-        Analyze temporal dynamics and autocorrelations.
-        
-        Returns:
-            Dictionary with autocorrelation metrics
-        """
-        logger.info("Analyzing temporal dynamics")
-        
-        # Calculate autocorrelations for each feature
-        real_autocorr = []
-        synthetic_autocorr = []
-        
-        for feature_idx in range(self.n_features):
-            real_feature_seq = self.real_data[:, :, feature_idx]  # (n_samples, sequence_length)
-            synthetic_feature_seq = self.synthetic_data[:, :, feature_idx]
-            
-            # Calculate autocorrelation for each sample
-            real_ac = []
-            synthetic_ac = []
-            
-            for sample_idx in range(min(10, self.n_samples)):  # Use first 10 samples
-                real_ac.append(np.corrcoef(real_feature_seq[sample_idx, :-1], 
-                                         real_feature_seq[sample_idx, 1:])[0, 1])
-                synthetic_ac.append(np.corrcoef(synthetic_feature_seq[sample_idx, :-1], 
-                                              synthetic_feature_seq[sample_idx, 1:])[0, 1])
-            
-            real_autocorr.append(np.mean(real_ac))
-            synthetic_autocorr.append(np.mean(synthetic_ac))
-        
-        return {
-            'real_autocorrelation': np.array(real_autocorr),
-            'synthetic_autocorrelation': np.array(synthetic_autocorr),
-            'autocorrelation_difference': np.abs(np.array(real_autocorr) - np.array(synthetic_autocorr))
-        }
-    
-    def financial_metrics(self) -> Dict[str, np.ndarray]:
-        """
-        Calculate financial-specific metrics.
-        
-        Returns:
-            Dictionary with financial metrics
-        """
-        logger.info("Calculating financial metrics")
-        
-        real_flat = self.real_data.reshape(-1, self.n_features)
-        synthetic_flat = self.synthetic_data.reshape(-1, self.n_features)
-        
-        # Volatility (standard deviation)
-        real_vol = np.std(real_flat, axis=0)
-        synthetic_vol = np.std(synthetic_flat, axis=0)
-        
-        # Skewness
-        real_skew = stats.skew(real_flat, axis=0)
-        synthetic_skew = stats.skew(synthetic_flat, axis=0)
-        
-        # Kurtosis
-        real_kurt = stats.kurtosis(real_flat, axis=0)
-        synthetic_kurt = stats.kurtosis(synthetic_flat, axis=0)
-        
-        # Value at Risk (95%)
-        real_var = np.percentile(real_flat, 5, axis=0)
-        synthetic_var = np.percentile(synthetic_flat, 5, axis=0)
-        
-        return {
-            'real_volatility': real_vol,
-            'synthetic_volatility': synthetic_vol,
-            'volatility_difference': np.abs(real_vol - synthetic_vol),
-            'real_skewness': real_skew,
-            'synthetic_skewness': synthetic_skew,
-            'skewness_difference': np.abs(real_skew - synthetic_skew),
-            'real_kurtosis': real_kurt,
-            'synthetic_kurtosis': synthetic_kurt,
-            'kurtosis_difference': np.abs(real_kurt - synthetic_kurt),
-            'real_var_95': real_var,
-            'synthetic_var_95': synthetic_var,
-            'var_difference': np.abs(real_var - synthetic_var)
-        }
-    
-    def feature_importance_analysis(self) -> Dict[str, np.ndarray]:
-        """
-        Analyze which features are most important for discrimination.
-        
-        Returns:
-            Dictionary with feature importance metrics
-        """
-        logger.info("Analyzing feature importance")
-        
-        # Calculate feature-wise statistics
-        real_flat = self.real_data.reshape(-1, self.n_features)
-        synthetic_flat = self.synthetic_data.reshape(-1, self.n_features)
-        
-        feature_importance = []
-        
-        for feature_idx in range(self.n_features):
-            real_feature = real_flat[:, feature_idx]
-            synthetic_feature = synthetic_flat[:, feature_idx]
-            
-            # Calculate separation metric (higher = better separation)
-            combined = np.concatenate([real_feature, synthetic_feature])
-            labels = np.concatenate([np.ones(len(real_feature)), np.zeros(len(synthetic_feature))])
-            
-            # Calculate F-statistic (ANOVA)
-            f_stat, _ = stats.f_oneway(real_feature, synthetic_feature)
-            feature_importance.append(f_stat)
-        
-        return {
-            'feature_importance': np.array(feature_importance),
-            'feature_ranking': np.argsort(feature_importance)[::-1]
-        }
-    
-    def comprehensive_evaluation(self) -> Dict[str, Dict]:
-        """
-        Run comprehensive evaluation of all metrics.
-        
-        Returns:
-            Dictionary with all evaluation results
-        """
-        logger.info("Running comprehensive evaluation")
-        
-        results = {}
-        
-        # Basic statistics
-        results['basic_statistics'] = self.basic_statistics()
-        
-        # Distribution similarity
-        results['distribution_similarity'] = self.distribution_similarity()
-        
-        # Correlation analysis
-        results['correlation_analysis'] = self.correlation_analysis()
-        
-        # Temporal dynamics
-        results['temporal_dynamics'] = self.temporal_dynamics()
-        
-        # Financial metrics
-        results['financial_metrics'] = self.financial_metrics()
-        
-        # Feature importance
-        results['feature_importance'] = self.feature_importance_analysis()
-        
-        # Overall quality score
-        results['overall_quality'] = self._calculate_overall_quality(results)
-        
-        return results
-    
-    def _calculate_overall_quality(self, results: Dict) -> float:
-        """
-        Calculate overall quality score.
-        
-        Args:
-            results: Dictionary with all evaluation results
-            
-        Returns:
-            Overall quality score (0-1, higher is better)
-        """
-        # Normalize different metrics to 0-1 scale
-        scores = []
-        
-        # Distribution similarity (lower KS stat is better)
-        ks_scores = 1 - results['distribution_similarity']['ks_statistics']
-        scores.append(np.mean(ks_scores))
-        
-        # Correlation similarity (lower difference is better)
-        corr_scores = 1 - np.tanh(results['correlation_analysis']['correlation_difference'].mean())
-        scores.append(corr_scores)
-        
-        # Temporal dynamics (lower difference is better)
-        temp_scores = 1 - np.tanh(results['temporal_dynamics']['autocorrelation_difference'].mean())
-        scores.append(temp_scores)
-        
-        # Financial metrics (lower difference is better)
-        fin_scores = 1 - np.tanh(results['financial_metrics']['volatility_difference'].mean())
-        scores.append(fin_scores)
-        
-        # Overall score is average of all normalized scores
-        overall_score = np.mean(scores)
-        
-        return overall_score
-    
-    def plot_evaluation_results(self, results: Dict, save_path: str = None) -> None:
-        """
-        Plot comprehensive evaluation results optimized for tighter screens.
-        
-        Args:
-            results: Evaluation results dictionary
-            save_path: Path to save plots
-        """
-        logger.info("Creating evaluation plots")
-        
-        # Set figure size optimized for tighter screens
-        fig, axes = plt.subplots(2, 3, figsize=(16, 10))
-        fig.suptitle('Treasury GAN Evaluation Results', fontsize=16)
-        
-        # Get number of features and create optimized x-axis labels
-        n_features = self.n_features
-        feature_indices = np.arange(n_features)
-        
-        # Reduce x-axis labels for better readability on tight screens
-        if n_features > 50:
-            # Show every 10th label for large feature sets
-            label_step = max(1, n_features // 20)
-            x_labels = [f'F{i}' if i % label_step == 0 else '' for i in range(n_features)]
-        else:
-            # Show every 5th label for smaller feature sets
-            label_step = max(1, n_features // 10)
-            x_labels = [f'F{i}' if i % label_step == 0 else '' for i in range(n_features)]
-        
-        # Basic statistics comparison
-        basic_stats = results['basic_statistics']
-        
-        axes[0, 0].bar(feature_indices, basic_stats['real']['mean'], width=0.8, 
-                       label='Real', alpha=0.7, color='#1f77b4')
-        axes[0, 0].bar(feature_indices, basic_stats['synthetic']['mean'], width=0.8, 
-                       label='Synthetic', alpha=0.7, color='#ff7f0e')
-        axes[0, 0].set_title('Feature Means Comparison', fontsize=12)
-        axes[0, 0].set_xlabel('Features')
-        axes[0, 0].set_ylabel('Mean Value')
-        axes[0, 0].legend(fontsize=10)
-        axes[0, 0].set_xticks(feature_indices[::label_step])
-        axes[0, 0].set_xticklabels([f'F{i}' for i in feature_indices[::label_step]], rotation=45, fontsize=8)
-        axes[0, 0].grid(True, alpha=0.3)
-        
-        # Distribution similarity
-        dist_sim = results['distribution_similarity']
-        axes[0, 1].bar(feature_indices, dist_sim['ks_statistics'], 
-                       color='#2ca02c', alpha=0.7)
-        axes[0, 1].set_title('KS Test Statistics\n(Lower is Better)', fontsize=12)
-        axes[0, 1].set_xlabel('Features')
-        axes[0, 1].set_ylabel('KS Statistic')
-        axes[0, 1].set_xticks(feature_indices[::label_step])
-        axes[0, 1].set_xticklabels([f'F{i}' for i in feature_indices[::label_step]], rotation=45, fontsize=8)
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # Correlation difference
-        corr_diff = results['correlation_analysis']['correlation_difference']
-        im = axes[0, 2].imshow(corr_diff, cmap='viridis', aspect='auto', 
-                               vmin=0, vmax=np.percentile(corr_diff, 95))
-        axes[0, 2].set_title('Correlation Matrix\nDifference', fontsize=12)
-        axes[0, 2].set_xlabel('Features')
-        axes[0, 2].set_ylabel('Features')
-        # Reduce tick labels for correlation matrix
-        tick_step = max(1, n_features // 8)
-        axes[0, 2].set_xticks(np.arange(0, n_features, tick_step))
-        axes[0, 2].set_yticks(np.arange(0, n_features, tick_step))
-        axes[0, 2].set_xticklabels([f'F{i}' for i in range(0, n_features, tick_step)], fontsize=8)
-        axes[0, 2].set_yticklabels([f'F{i}' for i in range(0, n_features, tick_step)], fontsize=8)
-        plt.colorbar(im, ax=axes[0, 2], shrink=0.8)
-        
-        # Temporal dynamics
-        temp_dyn = results['temporal_dynamics']
-        axes[1, 0].bar(feature_indices, temp_dyn['autocorrelation_difference'], 
-                       color='#d62728', alpha=0.7)
-        axes[1, 0].set_title('Autocorrelation\nDifference', fontsize=12)
-        axes[1, 0].set_xlabel('Features')
-        axes[1, 0].set_ylabel('Difference')
-        axes[1, 0].set_xticks(feature_indices[::label_step])
-        axes[1, 0].set_xticklabels([f'F{i}' for i in feature_indices[::label_step]], rotation=45, fontsize=8)
-        axes[1, 0].grid(True, alpha=0.3)
-        
-        # Financial metrics (volatility difference)
-        fin_metrics = results['financial_metrics']
-        axes[1, 1].bar(feature_indices, fin_metrics['volatility_difference'], 
-                       color='#9467bd', alpha=0.7)
-        axes[1, 1].set_title('Volatility\nDifference', fontsize=12)
-        axes[1, 0].set_xlabel('Features')
-        axes[1, 1].set_ylabel('Difference')
-        axes[1, 1].set_xticks(feature_indices[::label_step])
-        axes[1, 1].set_xticklabels([f'F{i}' for i in feature_indices[::label_step]], rotation=45, fontsize=8)
-        axes[1, 1].grid(True, alpha=0.3)
-        
-        # Feature importance
-        feat_imp = results['feature_importance']['feature_importance']
-        axes[1, 2].bar(feature_indices, feat_imp, color='#8c564b', alpha=0.7)
-        axes[1, 2].set_title('Feature Importance\n(F-statistic)', fontsize=12)
-        axes[1, 2].set_xlabel('Features')
-        axes[1, 2].set_ylabel('F-statistic')
-        axes[1, 2].set_xticks(feature_indices[::label_step])
-        axes[1, 2].set_xticklabels([f'F{i}' for i in feature_indices[::label_step]], rotation=45, fontsize=8)
-        axes[1, 2].grid(True, alpha=0.3)
-        
-        # Optimize layout for tight screens
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight', 
-                       facecolor='white', edgecolor='none')
-        
-        plt.show()
-        
-        # Print overall quality score with better formatting
-        overall_score = results['overall_quality']
-        print(f"\n{'='*60}")
-        print(f"🎯 TREASURY GAN EVALUATION SUMMARY")
-        print(f"{'='*60}")
-        print(f"📊 Overall Quality Score: {overall_score:.4f} (0-1 scale)")
-        
-        if overall_score > 0.8:
-            print(f"🏆 EXCELLENT synthetic data quality!")
-        elif overall_score > 0.6:
-            print(f"✅ GOOD synthetic data quality.")
-        elif overall_score > 0.4:
-            print(f"⚠️  MODERATE synthetic data quality.")
-        else:
-            print(f"❌ POOR synthetic data quality - consider retraining.")
-        
-        print(f"\n📈 Key Metrics:")
-        print(f"   • Distribution Similarity: {np.mean(results['distribution_similarity']['ks_statistics']):.4f}")
-        print(f"   • Correlation Preservation: {results['correlation_analysis']['correlation_mse']:.4f}")
-        print(f"   • Temporal Dynamics: {np.mean(results['temporal_dynamics']['autocorrelation_difference']):.4f}")
-        print(f"{'='*60}")
-
 def evaluate_treasury_gan(real_data: np.ndarray, synthetic_data: np.ndarray, 
-                         save_plots: bool = True) -> Dict[str, Dict]:
+                         save_plots: bool = True) -> Dict[str, Any]:
     """
-    Convenience function to run complete evaluation.
+    Comprehensive evaluation of Treasury GAN performance.
     
     Args:
         real_data: Real treasury data
-        synthetic_data: Synthetic treasury data
+        synthetic_data: Generated synthetic data
         save_plots: Whether to save evaluation plots
         
     Returns:
-        Complete evaluation results
+        Dictionary containing evaluation metrics
     """
-    evaluator = TreasuryDataEvaluator(real_data, synthetic_data)
-    results = evaluator.comprehensive_evaluation()
+    logger.info("Starting GAN evaluation...")
     
+    # Ensure data has the same shape
+    if real_data.shape != synthetic_data.shape:
+        logger.warning(f"Data shape mismatch: real {real_data.shape}, synthetic {synthetic_data.shape}")
+        # Reshape synthetic data to match real data
+        synthetic_data = synthetic_data[:real_data.shape[0]]
+    
+    results = {}
+    
+    # 1. Basic Statistics
+    results['basic_stats'] = calculate_basic_statistics(real_data, synthetic_data)
+    
+    # 2. Distribution Similarity
+    results['distribution_metrics'] = calculate_distribution_metrics(real_data, synthetic_data)
+    
+    # 3. Correlation Analysis
+    results['correlation_metrics'] = calculate_correlation_metrics(real_data, synthetic_data)
+    
+    # 4. Time Series Metrics
+    results['timeseries_metrics'] = calculate_timeseries_metrics(real_data, synthetic_data)
+    
+    # 5. Feature-wise Analysis
+    results['feature_analysis'] = analyze_features(real_data, synthetic_data)
+    
+    # Generate and save plots if requested
     if save_plots:
-        evaluator.plot_evaluation_results(results, 'evaluation_results.png')
+        results['plots'] = generate_evaluation_plots(real_data, synthetic_data)
     
-    return results 
+    logger.info("GAN evaluation completed successfully")
+    return results
+
+def calculate_basic_statistics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
+    """Calculate basic statistical measures."""
+    stats_dict = {}
+    
+    # Mean and standard deviation
+    stats_dict['real_mean'] = np.mean(real_data, axis=0).tolist()
+    stats_dict['real_std'] = np.std(real_data, axis=0).tolist()
+    stats_dict['synthetic_mean'] = np.mean(synthetic_data, axis=0).tolist()
+    stats_dict['synthetic_std'] = np.std(synthetic_data, axis=0).tolist()
+    
+    # Min and max values
+    stats_dict['real_min'] = np.min(real_data, axis=0).tolist()
+    stats_dict['real_max'] = np.max(real_data, axis=0).tolist()
+    stats_dict['synthetic_min'] = np.min(synthetic_data, axis=0).tolist()
+    stats_dict['synthetic_max'] = np.max(synthetic_data, axis=0).tolist()
+    
+    # Mean absolute difference
+    mean_diff = np.mean(np.abs(real_data - synthetic_data), axis=0)
+    stats_dict['mean_absolute_difference'] = mean_diff.tolist()
+    
+    return stats_dict
+
+def calculate_distribution_metrics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
+    """Calculate distribution similarity metrics."""
+    metrics = {}
+    
+    # Kolmogorov-Smirnov test for each feature
+    ks_stats = []
+    ks_pvalues = []
+    
+    for i in range(real_data.shape[1]):
+        ks_stat, p_value = stats.ks_2samp(real_data[:, i], synthetic_data[:, i])
+        ks_stats.append(ks_stat)
+        ks_pvalues.append(p_value)
+    
+    metrics['ks_statistics'] = ks_stats
+    metrics['ks_pvalues'] = ks_pvalues
+    
+    # Wasserstein distance (Earth Mover's Distance)
+    wasserstein_distances = []
+    for i in range(real_data.shape[1]):
+        wd = stats.wasserstein_distance(real_data[:, i], synthetic_data[:, i])
+        wasserstein_distances.append(wd)
+    
+    metrics['wasserstein_distances'] = wasserstein_distances
+    
+    # Jensen-Shannon divergence
+    js_divergences = []
+    for i in range(real_data.shape[1]):
+        # Create histograms for comparison
+        real_hist, _ = np.histogram(real_data[:, i], bins=50, density=True)
+        syn_hist, _ = np.histogram(synthetic_data[:, i], bins=50, density=True)
+        
+        # Normalize histograms
+        real_hist = real_hist / np.sum(real_hist)
+        syn_hist = syn_hist / np.sum(syn_hist)
+        
+        # Calculate JS divergence
+        m = 0.5 * (real_hist + syn_hist)
+        js_div = 0.5 * (stats.entropy(real_hist, m) + stats.entropy(syn_hist, m))
+        js_divergences.append(js_div)
+    
+    metrics['jensen_shannon_divergences'] = js_divergences
+    
+    return metrics
+
+def calculate_correlation_metrics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
+    """Calculate correlation-based metrics."""
+    metrics = {}
+    
+    # Feature correlation matrices
+    real_corr = np.corrcoef(real_data.T)
+    synthetic_corr = np.corrcoef(synthetic_data.T)
+    
+    metrics['real_correlation_matrix'] = real_corr.tolist()
+    metrics['synthetic_correlation_matrix'] = synthetic_corr.tolist()
+    
+    # Correlation matrix difference
+    corr_diff = np.abs(real_corr - synthetic_corr)
+    metrics['correlation_difference'] = corr_diff.tolist()
+    metrics['mean_correlation_difference'] = np.mean(corr_diff).item()
+    
+    # Temporal correlation (if data has time dimension)
+    if len(real_data.shape) > 2:
+        # Calculate lag-1 autocorrelation for each feature
+        real_autocorr = []
+        syn_autocorr = []
+        
+        for i in range(real_data.shape[2]):  # features
+            real_feature = real_data[:, :, i].flatten()
+            syn_feature = synthetic_data[:, :, i].flatten()
+            
+            if len(real_feature) > 1:
+                real_ac = np.corrcoef(real_feature[:-1], real_feature[1:])[0, 1]
+                syn_ac = np.corrcoef(syn_feature[:-1], syn_feature[1:])[0, 1]
+                
+                real_autocorr.append(real_ac if not np.isnan(real_ac) else 0)
+                syn_autocorr.append(syn_ac if not np.isnan(syn_ac) else 0)
+        
+        metrics['real_autocorrelation'] = real_autocorr
+        metrics['synthetic_autocorrelation'] = syn_autocorr
+    
+    return metrics
+
+def calculate_timeseries_metrics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
+    """Calculate time series specific metrics."""
+    metrics = {}
+    
+    # Reshape data if needed
+    if len(real_data.shape) == 3:
+        # (samples, sequence_length, features)
+        real_reshaped = real_data.reshape(-1, real_data.shape[-1])
+        syn_reshaped = synthetic_data.reshape(-1, synthetic_data.shape[-1])
+    else:
+        real_reshaped = real_data
+        syn_reshaped = synthetic_data
+    
+    # Mean squared error
+    mse = mean_squared_error(real_reshaped, syn_reshaped)
+    metrics['mean_squared_error'] = mse
+    
+    # Mean absolute error
+    mae = mean_absolute_error(real_reshaped, syn_reshaped)
+    metrics['mean_absolute_error'] = mae
+    
+    # Root mean squared error
+    rmse = np.sqrt(mse)
+    metrics['root_mean_squared_error'] = rmse
+    
+    # R-squared score
+    from sklearn.metrics import r2_score
+    r2 = r2_score(real_reshaped, syn_reshaped)
+    metrics['r2_score'] = r2
+    
+    return metrics
+
+def analyze_features(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
+    """Analyze individual features."""
+    analysis = {}
+    
+    # Feature-wise statistics
+    feature_stats = []
+    
+    for i in range(real_data.shape[1]):
+        real_feature = real_data[:, i]
+        syn_feature = synthetic_data[:, i]
+        
+        feature_stat = {
+            'feature_index': i,
+            'real_mean': np.mean(real_feature).item(),
+            'real_std': np.std(real_feature).item(),
+            'synthetic_mean': np.mean(syn_feature).item(),
+            'synthetic_std': np.std(syn_feature).item(),
+            'mean_difference': np.mean(real_feature - syn_feature).item(),
+            'std_difference': np.std(real_feature) - np.std(syn_feature).item()
+        }
+        
+        feature_stats.append(feature_stat)
+    
+    analysis['feature_statistics'] = feature_stats
+    
+    # Overall quality score (lower is better)
+    quality_scores = []
+    for i in range(real_data.shape[1]):
+        real_feature = real_data[:, i]
+        syn_feature = synthetic_data[:, i]
+        
+        # Combine multiple metrics for quality score
+        mean_diff = np.abs(np.mean(real_feature) - np.mean(syn_feature))
+        std_diff = np.abs(np.std(real_feature) - np.std(syn_feature))
+        ks_stat, _ = stats.ks_2samp(real_feature, syn_feature)
+        
+        # Normalize and combine
+        quality_score = (mean_diff + std_diff + ks_stat) / 3
+        quality_scores.append(quality_score)
+    
+    analysis['quality_scores'] = quality_scores
+    analysis['overall_quality'] = np.mean(quality_scores).item()
+    
+    return analysis
+
+def generate_evaluation_plots(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, str]:
+    """Generate and save evaluation plots."""
+    plots = {}
+    
+    try:
+        # Create plots directory
+        import os
+        os.makedirs('results/plots', exist_ok=True)
+        
+        # 1. Distribution comparison plots
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('Treasury GAN: Real vs Synthetic Data Distribution', fontsize=16)
+        
+        # Select features to plot (max 4)
+        num_features = min(4, real_data.shape[1])
+        feature_indices = np.linspace(0, real_data.shape[1]-1, num_features, dtype=int)
+        
+        for i, feat_idx in enumerate(feature_indices):
+            row, col = i // 2, i % 2
+            
+            # Plot histograms
+            axes[row, col].hist(real_data[:, feat_idx], alpha=0.7, bins=30, 
+                               label='Real', density=True, color='blue')
+            axes[row, col].hist(synthetic_data[:, feat_idx], alpha=0.7, bins=30, 
+                               label='Synthetic', density=True, color='red')
+            axes[row, col].set_title(f'Feature {feat_idx}')
+            axes[row, col].legend()
+            axes[row, col].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        dist_plot_path = 'results/plots/distribution_comparison.png'
+        plt.savefig(dist_plot_path, dpi=300, bbox_inches='tight')
+        plots['distribution_comparison'] = dist_plot_path
+        plt.close()
+        
+        # 2. Correlation heatmaps
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        fig.suptitle('Treasury GAN: Correlation Matrix Comparison', fontsize=16)
+        
+        # Real data correlation
+        real_corr = np.corrcoef(real_data.T)
+        im1 = ax1.imshow(real_corr, cmap='coolwarm', vmin=-1, vmax=1)
+        ax1.set_title('Real Data Correlation')
+        ax1.set_xlabel('Feature Index')
+        ax1.set_ylabel('Feature Index')
+        plt.colorbar(im1, ax=ax1)
+        
+        # Synthetic data correlation
+        syn_corr = np.corrcoef(synthetic_data.T)
+        im2 = ax2.imshow(syn_corr, cmap='coolwarm', vmin=-1, vmax=1)
+        ax2.set_title('Synthetic Data Correlation')
+        ax2.set_xlabel('Feature Index')
+        ax2.set_ylabel('Feature Index')
+        plt.colorbar(im2, ax=ax2)
+        
+        plt.tight_layout()
+        corr_plot_path = 'results/plots/correlation_comparison.png'
+        plt.savefig(corr_plot_path, dpi=300, bbox_inches='tight')
+        plots['correlation_comparison'] = corr_plot_path
+        plt.close()
+        
+        # 3. Time series comparison (if applicable)
+        if len(real_data.shape) == 3:
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            fig.suptitle('Treasury GAN: Time Series Comparison', fontsize=16)
+            
+            for i, feat_idx in enumerate(feature_indices):
+                row, col = i // 2, i % 2
+                
+                # Plot first few sequences
+                num_sequences = min(5, real_data.shape[0])
+                for seq_idx in range(num_sequences):
+                    axes[row, col].plot(real_data[seq_idx, :, feat_idx], 
+                                       alpha=0.7, color='blue', linewidth=1)
+                    axes[row, col].plot(synthetic_data[seq_idx, :, feat_idx], 
+                                       alpha=0.7, color='red', linewidth=1, linestyle='--')
+                
+                axes[row, col].set_title(f'Feature {feat_idx} - Sample Sequences')
+                axes[row, col].set_xlabel('Time Step')
+                axes[row, col].set_ylabel('Value')
+                axes[row, col].grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            ts_plot_path = 'results/plots/timeseries_comparison.png'
+            plt.savefig(ts_plot_path, dpi=300, bbox_inches='tight')
+            plots['timeseries_comparison'] = ts_plot_path
+            plt.close()
+        
+        logger.info("Evaluation plots generated successfully")
+        
+    except Exception as e:
+        logger.error(f"Error generating plots: {e}")
+        plots['error'] = str(e)
+    
+    return plots 

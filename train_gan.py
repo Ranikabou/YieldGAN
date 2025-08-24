@@ -173,19 +173,34 @@ def evaluate_model(trainer: GANTrainer, test_loader, scaler, config: dict):
     
     # Save evaluation results
     import json
+    import numpy as np
+    
+    def convert_to_json_serializable(obj):
+        """Recursively convert numpy arrays and other non-serializable objects to JSON-compatible formats."""
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, dict):
+            return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_to_json_serializable(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return [convert_to_json_serializable(item) for item in obj]
+        elif hasattr(obj, 'item'):  # Handle numpy scalars
+            return obj.item()
+        else:
+            return obj
+    
+    # Ensure results directory exists
+    import os
+    os.makedirs('results', exist_ok=True)
+    
     with open('results/evaluation_results.json', 'w') as f:
-        # Convert numpy arrays to lists for JSON serialization
-        json_results = {}
-        for key, value in evaluation_results.items():
-            if isinstance(value, dict):
-                json_results[key] = {}
-                for sub_key, sub_value in value.items():
-                    if isinstance(sub_value, np.ndarray):
-                        json_results[key][sub_key] = sub_value.tolist()
-                    else:
-                        json_results[key][sub_key] = sub_value
-            else:
-                json_results[key] = value
+        # Convert all numpy arrays and non-serializable objects
+        json_results = convert_to_json_serializable(evaluation_results)
         json.dump(json_results, f, indent=2)
     
     logger.info("Evaluation completed and results saved to results/evaluation_results.json")

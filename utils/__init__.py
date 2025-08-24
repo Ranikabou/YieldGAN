@@ -1,1 +1,1 @@
-# Utils package for treasury GAN project 
+# Utils package for GAN training 

@@ -415,35 +415,40 @@ class GANDashboard:
                     </div>
                 </div>
                 
-                <!-- New section for testing separate SSE channels -->
+                <!-- Training Session Selector -->
                 <div class="mt-8 bg-white rounded-lg shadow-md p-6">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Test Separate SSE Channels</h3>
-                    <p class="text-gray-600 mb-4">Test the separate channels for training and progress data, similar to test_separate_channels.py</p>
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Training Session Management</h3>
+                    <p class="text-gray-600 mb-4">Select which training session to monitor and control</p>
                     
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="border border-gray-200 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-700 mb-3">🎯 Training Channel</h4>
-                            <p class="text-sm text-gray-600 mb-3">Send training metrics to training clients only</p>
-                            <button onclick="sendTrainingData()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
-                                Send Training Data
-                            </button>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Active Training Session</label>
+                            <select id="training-session-selector" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">No active session</option>
+                                <option value="session-1">Session 1 - Started 2 min ago</option>
+                                <option value="session-2">Session 2 - Started 5 min ago</option>
+                            </select>
                         </div>
                         
-                        <div class="border border-gray-200 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-700 mb-3">📊 Progress Channel</h4>
-                            <p class="text-sm text-gray-600 mb-3">Send progress updates to progress clients only</p>
-                            <button onclick="sendProgressData()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors">
-                                Send Progress Data
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Session Status</label>
+                            <div id="session-status" class="px-3 py-2 bg-gray-100 rounded-md text-sm">
+                                No active session
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Actions</label>
+                            <button id="refresh-sessions" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors">
+                                🔄 Refresh Sessions
                             </button>
                         </div>
                     </div>
                     
-                    <div class="mt-4 p-3 bg-gray-50 rounded-lg">
-                        <h5 class="font-semibold text-gray-700 mb-2">SSE Channel Status</h5>
-                        <div class="text-sm text-gray-600">
-                            <div>🎯 Training Channel: <span id="training-status" class="font-mono">Connecting...</span></div>
-                            <div>📊 Progress Channel: <span id="progress-status" class="font-mono">Connecting...</span></div>
-                            <div>📝 Log Channel: <span id="log-status" class="font-mono">Connecting...</span></div>
+                    <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <h5 class="font-semibold text-blue-700 mb-2">Session Information</h5>
+                        <div id="session-info" class="text-sm text-gray-600">
+                            <div>Select a training session to view details</div>
                         </div>
                     </div>
                 </div>
@@ -619,64 +624,7 @@ class GANDashboard:
                     console.log('🔌 All SSE channels disconnected');
                 }
                 
-                // Test functions for sending data to separate channels
-                async function sendTrainingData() {
-                    const trainingData = {
-                        type: 'training_update',
-                        data: {
-                            epoch: Math.floor(Math.random() * 10) + 1,
-                            total_epochs: 10,
-                            generator_loss: (Math.random() * 0.7 + 0.5).toFixed(4),
-                            discriminator_loss: (Math.random() * 0.5 + 0.6).toFixed(4),
-                            real_scores: (Math.random() * 0.5 + 0.4).toFixed(4),
-                            fake_scores: (Math.random() * 0.4 + 0.1).toFixed(4)
-                        },
-                        timestamp: new Date().toISOString()
-                    };
-                    
-                    try {
-                        const response = await fetch('/training_data', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(trainingData)
-                        });
-                        
-                        const result = await response.json();
-                        console.log('🎯 Training data sent:', result);
-                        alert(`Training data sent to training channel! Clients: ${result.clients}`);
-                    } catch (error) {
-                        console.error('Error sending training data:', error);
-                        alert('Error sending training data');
-                    }
-                }
-                
-                async function sendProgressData() {
-                    const progressData = {
-                        type: 'progress',
-                        epoch: Math.floor(Math.random() * 10) + 1,
-                        progress_percent: Math.floor(Math.random() * 101),
-                        timestamp: new Date().toISOString()
-                    };
-                    
-                    try {
-                        const response = await fetch('/progress_data', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(progressData)
-                        });
-                        
-                        const result = await response.json();
-                        console.log('📊 Progress data sent:', result);
-                        alert(`Progress data sent to progress channel! Clients: ${result.clients}`);
-                    } catch (error) {
-                        console.error('Error sending progress data:', error);
-                        alert('Error sending progress data');
-                    }
-                }
+
                 
                 function updateDashboard(data) {
                     if (data.type === 'training_update') {
@@ -707,11 +655,89 @@ class GANDashboard:
                     console.log('📝 Log update:', data);
                 }
                 
+                // Training session management functions
+                function updateSessionSelector() {
+                    const selector = document.getElementById('training-session-selector');
+                    const sessionStatus = document.getElementById('session-status');
+                    const sessionInfo = document.getElementById('session-info');
+                    
+                    // Get current training status from the dashboard
+                    const currentStatus = document.getElementById('training-status')?.textContent || 'Unknown';
+                    
+                    if (currentStatus === 'Connected' || currentStatus === 'Running') {
+                        // Update selector with current session
+                        selector.innerHTML = `
+                            <option value="current">Current Session - Active Now</option>
+                            <option value="session-1">Session 1 - Started 2 min ago</option>
+                            <option value="session-2">Session 2 - Started 5 min ago</option>
+                        `;
+                        selector.value = 'current';
+                        
+                        sessionStatus.innerHTML = '<span class="text-green-600">🟢 Active</span>';
+                        sessionStatus.className = 'px-3 py-2 bg-green-100 rounded-md text-sm';
+                        
+                        sessionInfo.innerHTML = `
+                            <div><strong>Status:</strong> Training in progress</div>
+                            <div><strong>Channel:</strong> Connected to SSE</div>
+                            <div><strong>Last Update:</strong> ${new Date().toLocaleTimeString()}</div>
+                        `;
+                    } else {
+                        selector.innerHTML = `
+                            <option value="">No active session</option>
+                            <option value="session-1">Session 1 - Started 2 min ago</option>
+                            <option value="session-2">Session 2 - Started 5 min ago</option>
+                        `;
+                        selector.value = '';
+                        
+                        sessionStatus.innerHTML = '<span class="text-gray-600">⚪ Idle</span>';
+                        sessionStatus.className = 'px-3 py-2 bg-gray-100 rounded-md text-sm';
+                        
+                        sessionInfo.innerHTML = `
+                            <div>No active training session</div>
+                            <div>Use "Start Training" button to begin a new session</div>
+                        `;
+                    }
+                }
+                
+                function refreshTrainingSessions() {
+                    console.log('🔄 Refreshing training sessions');
+                    updateSessionSelector();
+                    
+                    // Simulate finding existing sessions
+                    const sessionInfo = document.getElementById('session-info');
+                    sessionInfo.innerHTML = `
+                        <div><strong>Available Sessions:</strong></div>
+                        <div>• Session 1: Started 2 min ago, Status: Completed</div>
+                        <div>• Session 2: Started 5 min ago, Status: Running</div>
+                        <div>• Current: Status: ${document.getElementById('training-status')?.textContent || 'Unknown'}</div>
+                    `;
+                }
+                
+                // Setup event listeners for buttons
+                function setupButtons() {
+                    console.log('🔧 Setting up button event listeners');
+                    
+                    const refreshSessionsBtn = document.getElementById('refresh-sessions');
+                    
+                    if (refreshSessionsBtn) {
+                        refreshSessionsBtn.addEventListener('click', function() {
+                            console.log('🔄 Refresh sessions button clicked');
+                            refreshTrainingSessions();
+                        });
+                        console.log('✅ Refresh sessions button event listener added');
+                    } else {
+                        console.error('❌ Refresh sessions button not found');
+                    }
+                }
+                
                 // Connect to all channels on page load
                 window.addEventListener('load', function() {
+                    console.log('🚀 Page loaded, setting up SSE channels and buttons');
                     connectTrainingChannel();
                     connectProgressChannel();
                     connectLogChannel();
+                    setupButtons();
+                    updateSessionSelector(); // Initial call to set up session selector
                 });
                 
                 // Button event listeners
@@ -726,6 +752,7 @@ class GANDashboard:
                         if (result.success) {
                             document.getElementById('status-text').textContent = 'Running';
                             document.getElementById('status-text').className = 'text-2xl font-bold text-green-600';
+                            updateSessionSelector(); // Update session selector after training starts
                         }
                     } catch (error) {
                         console.error('Error starting training:', error);
@@ -739,6 +766,7 @@ class GANDashboard:
                         if (result.success) {
                             document.getElementById('status-text').textContent = 'Stopped';
                             document.getElementById('status-text').className = 'text-2xl font-bold text-red-600';
+                            updateSessionSelector(); // Update session selector after training stops
                         }
                     } catch (error) {
                         console.error('Error stopping training:', error);
@@ -756,6 +784,8 @@ class GANDashboard:
                         console.error('Error generating sample:', error);
                     }
                 });
+                
+                document.getElementById('refresh-sessions').addEventListener('click', refreshTrainingSessions);
                 
                 // Initialize Feather icons
                 feather.replace();

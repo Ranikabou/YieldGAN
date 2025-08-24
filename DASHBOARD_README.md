@@ -1,203 +1,170 @@
-# 🎯 Treasury GAN Training Dashboard
+# Modified GAN Dashboard with Separate SSE Channels and Log File Reading
 
-A beautiful, interactive web dashboard for monitoring and controlling your Treasury GAN training pipeline in real-time.
+## Overview
 
-## ✨ Features
+The `gan_dashboard.py` has been modified to work similar to `test_separate_channels.py`, providing:
 
-### 🏠 **Dashboard Overview**
-- **Real-time metrics**: Data files, checkpoints, results, and training status
-- **Quick actions**: Generate reports, analyze data, show results
-- **Recent activity**: Live training logs and updates
+1. **Separate SSE Channels** for training and progress data
+2. **Real-time Log File Monitoring** to read training data from log files
+3. **Historical Data Loading** when clients connect
+4. **Test Interface** for demonstrating the separate channels
 
-### 📈 **Data Analysis**
-- **Data file explorer**: View all available data files with sizes and timestamps
-- **Interactive visualizations**: Treasury yield sequences, target distributions, feature correlations
-- **Data statistics**: Comprehensive overview of your dataset
+## Key Changes Made
 
-### 🤖 **Training Progress**
-- **Real-time monitoring**: Live training progress with progress bars
-- **Loss visualization**: Interactive charts showing generator vs discriminator losses
-- **Training logs**: Real-time log streaming from the training process
+### 1. Separate SSE Channels
 
-### 📊 **Results & Evaluation**
-- **Model checkpoints**: View and manage saved model states
-- **Training results**: Access all generated outputs and metrics
-- **Data comparison**: Side-by-side comparison of real vs synthetic data
+The dashboard now uses separate endpoints like `test_separate_channels.py`:
 
-### ⚙️ **Configuration**
-- **Current settings**: View and edit GAN configuration parameters
-- **System info**: Python, PyTorch, and CUDA availability
-- **Parameter tuning**: Modify training parameters on the fly
+- **Training Channel**: `/events/training` - receives training metrics only
+- **Progress Channel**: `/events/progress` - receives progress updates only  
+- **Log Channel**: `/events/logs` - receives general log entries
 
-## 🚀 Quick Start
+### 2. Log File Monitoring
 
-### **Option 1: Automatic Launch (Recommended)**
+The dashboard automatically monitors log files for training data:
 
-#### **On macOS/Linux:**
-```bash
-./run_dashboard.sh
-```
+- **Real-time Monitoring**: Watches for new content in log files
+- **Pattern Recognition**: Parses training metrics from log lines
+- **Multiple Formats**: Supports different log formats (text, JSON-like)
+- **Auto-discovery**: Finds log files using glob patterns
 
-#### **On Windows:**
-```cmd
-run_dashboard.bat
-```
+### 3. Data Endpoints
 
-### **Option 2: Manual Launch**
+New endpoints for sending data to specific channels:
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements_dashboard.txt
-   ```
+- **`/training_data`**: Send training metrics to training clients only
+- **`/progress_data`**: Send progress updates to progress clients only
 
-2. **Launch dashboard:**
-   ```bash
-   streamlit run dashboard.py
-   ```
+### 4. Historical Data
 
-3. **Open browser:**
-   Navigate to `http://localhost:8501`
+When clients connect to SSE channels, they receive:
 
-## 📋 Requirements
+- **Connection confirmation** with channel information
+- **Historical data** from previously parsed log files
+- **Real-time updates** as new data arrives
 
-The dashboard requires these packages:
-- `streamlit` - Web framework
-- `plotly` - Interactive charts
-- `pandas` - Data manipulation
-- `numpy` - Numerical computing
-- `pyyaml` - Configuration parsing
-- `torch` - PyTorch for model operations
-- `scikit-learn` - Data preprocessing
+## How to Use
 
-## 🎮 How to Use
-
-### **1. Start Training**
-- Set your desired date range in the sidebar
-- Choose configuration file
-- Click "▶️ Start Training"
-- Monitor progress in real-time
-
-### **2. Monitor Progress**
-- Watch training losses in the "Training Progress" tab
-- View real-time logs as they happen
-- Check GPU/CPU utilization
-
-### **3. Analyze Results**
-- Compare real vs synthetic data
-- View model checkpoints
-- Access evaluation metrics
-
-### **4. Control Training**
-- Start/stop training at any time
-- Modify configuration parameters
-- Generate reports on demand
-
-## 🔧 Configuration
-
-The dashboard automatically loads your GAN configuration from `config/gan_config.yaml`. You can:
-
-- **Modify parameters** through the web interface
-- **Save changes** to update your configuration
-- **Switch between** different config files
-
-## 📊 Dashboard Layout
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    📊 Treasury GAN Dashboard                │
-├─────────────────────────────────────────────────────────────┤
-│ 🏠 Overview │ 📈 Data │ 🤖 Training │ 📊 Results │ ⚙️ Config │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│                    Main Content Area                        │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│ 🎛️ Control Panel                                          │
-│ ├─ 🚀 Training Controls                                    │
-│ ├─ 📅 Date Selection                                       │
-│ ├─ ⚙️ Configuration                                        │
-│ └─ 📊 Status Indicator                                     │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🎨 Customization
-
-### **Adding New Visualizations**
-The dashboard is built with Plotly, making it easy to add custom charts:
-
-```python
-def create_custom_chart():
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=[1,2,3], y=[1,2,3]))
-    return fig
-
-# Use in dashboard
-st.plotly_chart(create_custom_chart())
-```
-
-### **Modifying Layout**
-Adjust the dashboard layout by modifying the tab structure in `dashboard.py`.
-
-## 🐛 Troubleshooting
-
-### **Dashboard won't start:**
-1. Check if all dependencies are installed: `pip install -r requirements_dashboard.txt`
-2. Ensure you're in the project directory
-3. Check if port 8501 is available
-
-### **No data showing:**
-1. Ensure you have data files in the `data/` directory
-2. Check if the GAN has been trained at least once
-3. Verify configuration file exists
-
-### **Training won't start:**
-1. Check if `train_gan.py` exists and is executable
-2. Verify configuration file is valid
-3. Ensure all required Python modules are available
-
-## 🔄 Integration with Training Pipeline
-
-The dashboard seamlessly integrates with your existing GAN training pipeline:
-
-- **Real-time monitoring** of `train_gan.py` execution
-- **Automatic data loading** from your data directories
-- **Direct access** to model checkpoints and results
-- **Configuration management** for your GAN parameters
-
-## 📱 Mobile Friendly
-
-The dashboard is fully responsive and works on:
-- 🖥️ Desktop computers
-- 📱 Mobile phones
-- 💻 Tablets
-- 🖥️ Different screen sizes
-
-## 🚀 Performance Tips
-
-- **Close unused tabs** to improve performance
-- **Limit log history** for very long training sessions
-- **Use GPU acceleration** when available
-- **Monitor memory usage** during long training runs
-
-## 🤝 Contributing
-
-To add new features to the dashboard:
-
-1. **Fork the repository**
-2. **Create a feature branch**
-3. **Add your improvements**
-4. **Submit a pull request**
-
-## 📄 License
-
-This dashboard is part of the Treasury GAN project and follows the same MIT license.
-
----
-
-**🎯 Ready to visualize your GAN training? Launch the dashboard now!**
+### 1. Start the Dashboard
 
 ```bash
-./run_dashboard.sh  # macOS/Linux
-# or
-run_dashboard.bat   # Windows
-``` 
+python gan_dashboard.py
+```
+
+The dashboard will start on `http://localhost:8081`
+
+### 2. Test Separate Channels
+
+Use the test interface on the dashboard:
+
+- **Send Training Data**: Test button sends training metrics to training channel
+- **Send Progress Data**: Test button sends progress updates to progress channel
+- **Channel Status**: Shows connection status for each SSE channel
+
+### 3. Test with External Script
+
+Run the test script to demonstrate the channels:
+
+```bash
+python test_dashboard_channels.py
+```
+
+This script:
+- Creates sample log files
+- Sends data to separate channels
+- Appends to log files to test log reading
+- Shows how data flows through different channels
+
+### 4. Monitor Log Files
+
+The dashboard automatically monitors these log patterns:
+
+- `logs/*.log`
+- `logs/*.txt`
+- `*.log`
+- `training_*.log`
+
+## Log File Format Support
+
+The dashboard can parse training metrics from various log formats:
+
+### Format 1: Standard Text
+```
+[INFO] Epoch 1/10 Generator Loss: 1.2345 Discriminator Loss: 0.8765
+```
+
+### Format 2: JSON-like
+```
+{"epoch": 1, "generator_loss": 1.2345, "discriminator_loss": 0.8765}
+```
+
+### Format 3: Progress
+```
+[INFO] Progress: 50%
+```
+
+## Benefits of the New Approach
+
+1. **Separation of Concerns**: Training and progress data use different channels
+2. **Log File Integration**: Can read from existing training logs
+3. **Historical Data**: Clients get complete training history on connection
+4. **Real-time Updates**: Both live data and log file changes are broadcast
+5. **Testability**: Easy to test individual channels
+6. **Scalability**: Different types of data don't interfere with each other
+
+## Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Training      │    │   Progress       │    │   Log Files     │
+│   Scripts       │    │   Updates        │    │   (monitored)   │
+└─────────┬───────┘    └──────────┬───────┘    └─────────┬───────┘
+          │                       │                       │
+          ▼                       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  /training_data │    │  /progress_data  │    │  Log Monitor    │
+│  → training     │    │  → progress      │    │  → all channels │
+│    clients      │    │    clients       │    │                 │
+└─────────┬───────┘    └──────────┬───────┘    └─────────┬───────┘
+          │                       │                       │
+          ▼                       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  /events/       │    │  /events/        │    │  /events/       │
+│  training       │    │  progress        │    │  logs           │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+## Comparison with Original
+
+| Feature | Original Dashboard | Modified Dashboard |
+|---------|-------------------|-------------------|
+| Data Source | Subprocess stdout only | Log files + subprocess |
+| SSE Channels | Single mixed channel | Separate channels |
+| Historical Data | None | Loaded from logs |
+| Data Separation | Mixed in one stream | Separate by type |
+| Testability | Limited | Full test interface |
+| Log Integration | None | Real-time monitoring |
+
+## Troubleshooting
+
+### Dashboard Won't Start
+- Check if port 8081 is available
+- Ensure all dependencies are installed
+
+### No Data in Channels
+- Check if log files exist and contain training data
+- Verify SSE connections are established
+- Check browser console for connection errors
+
+### Log Files Not Detected
+- Ensure log files match the supported patterns
+- Check file permissions
+- Look for log monitoring errors in dashboard output
+
+## Future Enhancements
+
+1. **Configurable Log Patterns**: Allow users to define custom log formats
+2. **Data Persistence**: Store parsed data in database for better performance
+3. **Advanced Parsing**: Support more complex log formats
+4. **Metrics Export**: Export training metrics to various formats
+5. **Alerting**: Notify users of training issues or completion 

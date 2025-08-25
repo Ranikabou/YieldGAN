@@ -825,6 +825,84 @@ class GANDashboard:
             <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <script src="https://unpkg.com/feather-icons"></script>
+            <style>
+                /* Enhanced button state styling */
+                .training-btn {
+                    transition: all 0.3s ease;
+                    position: relative;
+                    overflow: hidden;
+                }
+                
+                .training-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                    transform: scale(0.95);
+                }
+                
+                .training-btn:not(:disabled):hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                }
+                
+                .training-btn:not(:disabled):active {
+                    transform: translateY(0);
+                }
+                
+                /* Completion notification animation */
+                .completion-notification {
+                    animation: slideInRight 0.5s ease-out;
+                }
+                
+                @keyframes slideInRight {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+                
+                /* Progress bar enhancement */
+                #training-progress-bar {
+                    transition: width 0.5s ease-out;
+                    background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+                }
+                
+                /* Status text enhancement */
+                #status-text {
+                    transition: all 0.3s ease;
+                }
+                
+                /* Comprehensive data option enhancement */
+                #comprehensive-option {
+                    background: linear-gradient(135deg, #dbeafe 0%, #e9d5ff 100%);
+                    border: 2px solid #3b82f6;
+                    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+                }
+                
+                #comprehensive-option:hover {
+                    background: linear-gradient(135deg, #bfdbfe 0%, #ddd6fe 100%);
+                    border-color: #2563eb;
+                    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+                    transform: translateY(-1px);
+                }
+                
+                /* Enhanced table styling for treasury data */
+                .treasury-table th {
+                    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+                    border-bottom: 2px solid #d1d5db;
+                }
+                
+                .treasury-table td {
+                    border-bottom: 1px solid #f3f4f6;
+                }
+                
+                .treasury-table tr:hover {
+                    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                }
+            </style>
         </head>
         <body class="bg-gray-100">
             <nav class="bg-blue-600 text-white shadow-lg">
@@ -855,7 +933,7 @@ class GANDashboard:
                             
                             <!-- Available Data Sources - Compact Grid -->
                             <div class="mb-3">
-                                <div class="grid grid-cols-3 gap-2">
+                                <div class="grid grid-cols-2 gap-2">
                                     <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('treasury_orderbook_sample.csv', 'orderbook')">
                                         <div class="w-2 h-2 bg-blue-500 rounded-full mx-auto mb-1"></div>
                                         <span class="text-xs font-medium">Treasury Orderbook</span>
@@ -864,9 +942,12 @@ class GANDashboard:
                                         <div class="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1"></div>
                                         <span class="text-xs font-medium">Yield Curve</span>
                                     </div>
-                                    <div class="p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer transition-colors text-center" onclick="window.selectDataSource('sample_orderbook.csv', 'orderbook')">
-                                        <div class="w-2 h-2 bg-purple-500 rounded-full mx-auto mb-1"></div>
-                                        <span class="text-xs font-medium">Sample Orderbook</span>
+                                </div>
+                                <div class="mt-2">
+                                    <div class="p-2 bg-gradient-to-r from-gray-50 to-gray-100 rounded border border-gray-300 cursor-not-allowed transition-all text-center opacity-60" id="comprehensive-option">
+                                        <div class="w-3 h-3 bg-gradient-to-r from-gray-400 to-gray-500 rounded-full mx-auto mb-1"></div>
+                                        <span class="text-xs font-medium text-gray-500">🎯 Treasury Orderbook Data</span>
+                                        <div class="text-xs text-gray-400 mt-1">Click "Generate Sample" to create 5-level orderbook</div>
                                     </div>
                                 </div>
                             </div>
@@ -898,16 +979,22 @@ class GANDashboard:
                             <h4 class="text-md font-medium text-blue-700 mb-2">🚀 Training Controls</h4>
                             <div class="flex items-center justify-between">
                                 <div class="flex space-x-3">
-                                    <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors font-medium text-sm">
+                                    <button id="start-training" class="training-btn bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 font-medium text-sm">
                                         ▶️ Start Training
                                     </button>
-                                    <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 transition-colors font-medium text-sm">
+                                    <button id="stop-training" class="training-btn bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 font-medium text-sm" disabled>
                                         ⏹️ Stop Training
                                     </button>
                                 </div>
                                 <div id="data-source-indicator" class="text-xs text-gray-600">
                                     <span class="font-medium">Status:</span> 
                                     <span id="data-source-status">No data source selected</span>
+                                    <div id="training-status-indicator" class="hidden mt-1">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                            <span class="text-green-600 font-medium">Training Active</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -922,7 +1009,11 @@ class GANDashboard:
                             <h4 class="text-md font-medium text-gray-700 mb-2">Sample Data (First 5 rows)</h4>
                             <div class="overflow-x-auto">
                                 <div id="data-table-preview" class="bg-gray-50 p-3 rounded-lg">
-                                    <!-- Data table will be populated here -->
+                                    <div class="text-center text-gray-500 py-8">
+                                        <div class="text-2xl mb-2">📊</div>
+                                        <div class="text-sm">No data selected</div>
+                                        <div class="text-xs text-gray-400 mt-1">Upload a CSV file or generate sample data to preview</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1029,20 +1120,25 @@ class GANDashboard:
                 
                 // Initialize data preview section
                 function initializeDataPreview() {
+                    console.log('🔍 initializeDataPreview: Starting...');
                     const dataPreviewSection = document.getElementById('data-preview-section');
                     if (dataPreviewSection) {
                         // Ensure the section is hidden initially
                         dataPreviewSection.style.display = 'none';
+                        console.log('🔍 initializeDataPreview: Data preview section hidden');
                         
                         // Initialize chart container
                         const chartElement = document.getElementById('dataPreviewChart');
                         
                         if (chartElement) {
-                            console.log('Data preview chart element found and ready');
+                            console.log('🔍 initializeDataPreview: Data preview chart element found and ready');
                         } else {
-                            console.error('Data preview chart element not found during initialization');
+                            console.error('🔍 initializeDataPreview: Data preview chart element not found during initialization');
                         }
+                    } else {
+                        console.error('🔍 initializeDataPreview: Data preview section element not found');
                     }
+                    console.log('🔍 initializeDataPreview: Completed');
                 }
                 
                 // Helper function to safely clear chart area
@@ -1194,6 +1290,7 @@ class GANDashboard:
                 
                 // Initialize data preview when page loads
                 document.addEventListener('DOMContentLoaded', function() {
+                    console.log('🔍 DOMContentLoaded: Initializing data preview...');
                     initializeDataPreview();
                     
                     // Add global error handler for chart operations
@@ -1419,6 +1516,12 @@ class GANDashboard:
                         document.getElementById('stop-training').disabled = false;
                         document.getElementById('stop-training').classList.remove('opacity-50', 'cursor-not-allowed');
                         
+                        // Show training status indicator
+                        const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                        if (trainingStatusIndicator) {
+                            trainingStatusIndicator.classList.remove('hidden');
+                        }
+                        
                         // Show training info
                         const trainingInfo = document.createElement('div');
                         trainingInfo.className = 'mt-4 p-4 bg-green-50 rounded-lg border border-green-200';
@@ -1442,6 +1545,42 @@ class GANDashboard:
                         const trainingControls = document.querySelector('.p-4.bg-blue-50');
                         trainingControls.parentNode.insertBefore(trainingInfo, trainingControls.nextSibling);
                         
+                    } else if (data.type === 'training_update') {
+                        // Check if this is the final epoch completion
+                        if (data.data.epoch === data.data.total_epochs) {
+                            console.log('🎯 Final epoch completed - automatically adjusting button states');
+                            
+                            // Automatically adjust button states for training termination
+                            const startTrainingBtn = document.getElementById('start-training');
+                            const stopTrainingBtn = document.getElementById('stop-training');
+                            
+                            if (startTrainingBtn && stopTrainingBtn) {
+                                // Re-enable start training button
+                                startTrainingBtn.disabled = false;
+                                startTrainingBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                                
+                                // Disable stop training button
+                                stopTrainingBtn.disabled = true;
+                                stopTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                                
+                                // Update status text to show completion
+                                const statusText = document.getElementById('status-text');
+                                if (statusText) {
+                                    statusText.textContent = 'Completed';
+                                    statusText.className = 'text-xl font-bold text-green-600';
+                                }
+                                
+                                // Hide training status indicator
+                                const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                                if (trainingStatusIndicator) {
+                                    trainingStatusIndicator.classList.add('hidden');
+                                }
+                                
+                                // Show completion notification
+                                showCompletionNotification('Training completed successfully!', 'success');
+                            }
+                        }
+                        
                     } else if (data.type === 'training_complete') {
                         console.log('✅ Training completed:', data.data);
                         document.getElementById('status-text').textContent = data.data.status === 'completed' ? 'Completed' : 'Failed';
@@ -1453,6 +1592,12 @@ class GANDashboard:
                         document.getElementById('start-training').classList.remove('opacity-50', 'cursor-not-allowed');
                         document.getElementById('stop-training').disabled = true;
                         document.getElementById('stop-training').classList.add('opacity-50', 'cursor-not-allowed');
+                        
+                        // Hide training status indicator
+                        const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                        if (trainingStatusIndicator) {
+                            trainingStatusIndicator.classList.add('hidden');
+                        }
                         
                         // Show completion info
                         const completionInfo = document.createElement('div');
@@ -1516,6 +1661,41 @@ class GANDashboard:
                         progressBar.style.width = `${progressPercent}%`;
                         document.getElementById('progress-text').textContent = `${progressPercent.toFixed(1)}%`;
                         document.getElementById('progress-epoch').textContent = data.epoch || 0;
+                        
+                        // Check if training has reached termination (100% progress)
+                        if (progressPercent === 100) {
+                            console.log('🎯 Training progress reached 100% - automatically adjusting button states');
+                            
+                            // Automatically adjust button states for training termination
+                            const startTrainingBtn = document.getElementById('start-training');
+                            const stopTrainingBtn = document.getElementById('stop-training');
+                            
+                            if (startTrainingBtn && stopTrainingBtn) {
+                                // Re-enable start training button
+                                startTrainingBtn.disabled = false;
+                                startTrainingBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                                
+                                // Disable stop training button
+                                stopTrainingBtn.disabled = true;
+                                stopTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                                
+                                // Update status text to show completion
+                                const statusText = document.getElementById('status-text');
+                                if (statusText) {
+                                    statusText.textContent = 'Completed';
+                                    statusText.className = 'text-xl font-bold text-green-600';
+                                }
+                                
+                                // Hide training status indicator
+                                const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                                if (trainingStatusIndicator) {
+                                    trainingStatusIndicator.classList.add('hidden');
+                                }
+                                
+                                // Show completion notification
+                                showCompletionNotification('Training completed successfully!', 'success');
+                            }
+                        }
                     }
                 }
                 
@@ -1570,9 +1750,38 @@ class GANDashboard:
                     }
                 }
                 
-
-                
-
+                // Function to show completion notifications
+                function showCompletionNotification(message, type = 'info') {
+                    // Remove existing notifications
+                    const existingNotifications = document.querySelectorAll('.completion-notification');
+                    existingNotifications.forEach(notification => notification.remove());
+                    
+                    // Create notification element
+                    const notification = document.createElement('div');
+                    notification.className = `completion-notification fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 max-w-sm ${
+                        type === 'success' ? 'bg-green-500 text-white' : 
+                        type === 'error' ? 'bg-red-500 text-white' : 
+                        'bg-blue-500 text-white'
+                    }`;
+                    
+                    notification.innerHTML = `
+                        <div class="flex items-center">
+                            <span class="mr-2">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+                            <span class="font-medium">${message}</span>
+                            <button onclick="this.parentElement.parentElement.remove()" class="ml-auto text-white hover:text-gray-200">×</button>
+                        </div>
+                    `;
+                    
+                    // Add to page
+                    document.body.appendChild(notification);
+                    
+                    // Auto-remove after 5 seconds
+                    setTimeout(() => {
+                        if (notification.parentElement) {
+                            notification.remove();
+                        }
+                    }, 5000);
+                }
                 
                 // Connect to all channels on page load
                 window.addEventListener('load', function() {
@@ -1580,6 +1789,7 @@ class GANDashboard:
                     connectTrainingChannel();
                     connectProgressChannel();
                     connectLogChannel();
+                    console.log('🔍 Window load: Initializing data source selection...');
                     initializeDataSourceSelection();
                 });
                 
@@ -1609,6 +1819,58 @@ class GANDashboard:
                             document.getElementById('start-training').classList.add('opacity-50', 'cursor-not-allowed');
                             document.getElementById('stop-training').disabled = false;
                             document.getElementById('stop-training').classList.remove('opacity-50', 'cursor-not-allowed');
+                            
+                            // Show training status indicator
+                            const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                            if (trainingStatusIndicator) {
+                                trainingStatusIndicator.classList.remove('hidden');
+                            }
+                            
+                            // Clear any existing completion notifications
+                            const existingNotifications = document.querySelectorAll('.completion-notification');
+                            existingNotifications.forEach(notification => notification.remove());
+                            
+                            // Clear any existing completion info
+                            const existingCompletion = document.querySelector('.bg-green-50, .bg-red-50');
+                            if (existingCompletion && existingCompletion !== document.querySelector('.p-4.bg-blue-50')) {
+                                existingCompletion.remove();
+                            }
+                            
+                            // Reset progress bar if it exists
+                            const progressBar = document.getElementById('training-progress-bar');
+                            if (progressBar) {
+                                progressBar.style.width = '0%';
+                                const progressText = document.getElementById('progress-text');
+                                const progressEpoch = document.getElementById('progress-epoch');
+                                if (progressText) progressText.textContent = '0%';
+                                if (progressEpoch) progressEpoch.textContent = '0';
+                            }
+                            
+                            // Clear any existing training info
+                            const existingTrainingInfo = document.querySelector('.bg-green-50');
+                            if (existingTrainingInfo && existingTrainingInfo !== document.querySelector('.p-4.bg-blue-50')) {
+                                existingTrainingInfo.remove();
+                            }
+                            
+                            // Clear any existing training logs
+                            const existingLogs = document.getElementById('training-logs-container');
+                            if (existingLogs) {
+                                existingLogs.innerHTML = '';
+                            }
+                            
+                            // Reset charts if they exist
+                            if (window.lossChart) {
+                                window.lossChart.data.labels = [];
+                                window.lossChart.data.datasets[0].data = [];
+                                window.lossChart.data.datasets[1].data = [];
+                                window.lossChart.update();
+                            }
+                            if (window.scoresChart) {
+                                window.scoresChart.data.labels = [];
+                                window.scoresChart.data.datasets[0].data = [];
+                                window.scoresChart.data.datasets[1].data = [];
+                                window.scoresChart.update();
+                            }
                         }
                     } catch (error) {
                         console.error('Error starting training:', error);
@@ -1628,6 +1890,12 @@ class GANDashboard:
                             document.getElementById('start-training').classList.remove('opacity-50', 'cursor-not-allowed');
                             document.getElementById('stop-training').disabled = true;
                             document.getElementById('stop-training').classList.add('opacity-50', 'cursor-not-allowed');
+                            
+                            // Hide training status indicator
+                            const trainingStatusIndicator = document.getElementById('training-status-indicator');
+                            if (trainingStatusIndicator) {
+                                trainingStatusIndicator.classList.add('hidden');
+                            }
                         }
                     } catch (error) {
                         console.error('Error stopping training:', error);
@@ -1636,13 +1904,77 @@ class GANDashboard:
                 
                 document.getElementById('generate-sample').addEventListener('click', async () => {
                     try {
+                        // Show loading state
+                        const generateBtn = document.getElementById('generate-sample');
+                        const originalText = generateBtn.innerHTML;
+                        generateBtn.innerHTML = '🔄 Generating...';
+                        generateBtn.disabled = true;
+                        
                         const response = await fetch('/api/generate_sample', {method: 'POST'});
                         const result = await response.json();
+                        
                         if (result.success) {
-                            alert('Sample generated successfully!');
+                            // Show success notification
+                            showCompletionNotification(`✅ Sample generated successfully! ${result.summary.total_records} records created.`, 'success');
+                            
+                            // Automatically select the generated sample as data source
+                            if (result.filename) {
+                                window.selectDataSource(result.filename, 'treasury_orderbook');
+                                
+                                // Update comprehensive option to show it's available
+                                const comprehensiveOption = document.getElementById('comprehensive-option');
+                                if (comprehensiveOption) {
+                                    comprehensiveOption.className = 'p-2 bg-gradient-to-r from-blue-50 to-purple-50 rounded border border-blue-300 hover:border-blue-400 cursor-pointer transition-all text-center';
+                                    comprehensiveOption.onclick = () => window.selectDataSource('treasury_orderbook_levels.csv', 'treasury_orderbook');
+                                    comprehensiveOption.innerHTML = `
+                                        <div class="w-3 h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mx-auto mb-1"></div>
+                                        <span class="text-xs font-medium text-blue-700">🎯 Treasury Orderbook Data</span>
+                                        <div class="text-xs text-blue-600 mt-1">24h of 5-level orderbook data available</div>
+                                    `;
+                                }
+                                
+                                // Show detailed summary
+                                const summaryHtml = `
+                                    <div class="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                                        <h4 class="text-md font-medium text-green-700 mb-2">📊 Generated Sample Summary</h4>
+                                        <div class="grid grid-cols-2 gap-4 text-sm text-green-600">
+                                            <div><strong>Total Records:</strong> ${result.summary.total_records}</div>
+                                            <div><strong>Unique Bonds:</strong> ${result.summary.unique_bonds}</div>
+                                            <div><strong>Date Range:</strong> ${result.summary.date_range}</div>
+                                            <div><strong>Price Range:</strong> ${result.summary.price_range}</div>
+                                            <div><strong>Yield Range:</strong> ${result.summary.yield_range}</div>
+                                            <div><strong>Total Volume:</strong> ${result.summary.total_volume}</div>
+                                            <div><strong>Avg Spread:</strong> ${result.summary.avg_spread}</div>
+                                        </div>
+                                    </div>
+                                `;
+                                
+                                // Insert summary after training controls
+                                const trainingControls = document.querySelector('.p-4.bg-blue-50');
+                                if (trainingControls) {
+                                    // Remove existing summary if any
+                                    const existingSummary = document.querySelector('.bg-green-50');
+                                    if (existingSummary && existingSummary !== trainingControls) {
+                                        existingSummary.remove();
+                                    }
+                                    
+                                    trainingControls.parentNode.insertBefore(
+                                        document.createRange().createContextualFragment(summaryHtml),
+                                        trainingControls.nextSibling
+                                    );
+                                }
+                            }
+                        } else {
+                            showCompletionNotification(`❌ Failed to generate sample: ${result.error}`, 'error');
                         }
                     } catch (error) {
                         console.error('Error generating sample:', error);
+                        showCompletionNotification(`❌ Error generating sample: ${error.message}`, 'error');
+                    } finally {
+                        // Restore button state
+                        const generateBtn = document.getElementById('generate-sample');
+                        generateBtn.innerHTML = originalText;
+                        generateBtn.disabled = false;
                     }
                 });
                 
@@ -1654,6 +1986,7 @@ class GANDashboard:
                 
                 // Initialize data source selection
                 function initializeDataSourceSelection() {
+                    console.log('🔍 initializeDataSourceSelection: Starting...');
                     const startTrainingBtn = document.getElementById('start-training');
                     const stopTrainingBtn = document.getElementById('stop-training');
                     const uploadCsvBtn = document.getElementById('upload-csv');
@@ -1669,12 +2002,32 @@ class GANDashboard:
                     
                     // Data source selection handlers
                     function selectDataSource(filename, dataType) {
+                        console.log(`🔍 selectDataSource called with: ${filename}, ${dataType}`);
+                        console.log(`🔍 Call stack:`, new Error().stack);
                         selectedDataSource = filename;
                         selectedDataType = dataType;
                         
-                        // Update UI to show selection
-                        document.getElementById('data-source-status').textContent = `Selected: ${filename} (${dataType})`;
-                        document.getElementById('data-source-indicator').className = 'mt-2 p-2 rounded border border-green-200 bg-green-50';
+                        // Update UI to show selection with enhanced styling for treasury data
+                        const statusText = `Selected: ${filename} (${dataType})`;
+                        document.getElementById('data-source-status').textContent = statusText;
+                        
+                        // Enhanced styling based on data type
+                        let indicatorClass = 'mt-2 p-2 rounded border bg-green-50';
+                        if (dataType === 'treasury_orderbook') {
+                            indicatorClass += ' border-blue-300 bg-blue-50';
+                            document.getElementById('data-source-status').className = 'text-blue-700 font-medium';
+                        } else if (dataType === 'orderbook') {
+                            indicatorClass += ' border-purple-300 bg-purple-50';
+                            document.getElementById('data-source-status').className = 'text-purple-700 font-medium';
+                        } else if (dataType === 'timeseries') {
+                            indicatorClass += ' border-green-300 bg-green-50';
+                            document.getElementById('data-source-status').className = 'text-green-700 font-medium';
+                        } else {
+                            indicatorClass += ' border-green-200 bg-green-50';
+                            document.getElementById('data-source-status').className = 'text-green-700 font-medium';
+                        }
+                        
+                        document.getElementById('data-source-indicator').className = indicatorClass;
                         
                         // Show data preview section
                         document.getElementById('data-preview-section').style.display = 'block';
@@ -1737,25 +2090,60 @@ class GANDashboard:
                             }
                         }
                         
-                        // Update data table preview
+                        // Update data table preview with enhanced formatting for treasury data
                         const tablePreview = document.getElementById('data-table-preview');
                         if (dataInfo.sample_data && dataInfo.sample_data.length > 0) {
                             const headers = Object.keys(dataInfo.sample_data[0]);
+                            
+                            // Enhanced formatting function for orderbook data
+                            function formatCellValue(header, value) {
+                                if (value === null || value === undefined) return '-';
+                                
+                                // Special formatting for orderbook-specific columns
+                                if (header === 'SYM') {
+                                    return `<span class="font-mono font-bold text-blue-600">${value}</span>`;
+                                }
+                                if (header === 'TIMESTAMP') {
+                                    return `<span class="font-mono text-gray-700">${value}</span>`;
+                                }
+                                if (header.includes('BID_PRICE') || header.includes('ASK_PRICE')) {
+                                    return `<span class="font-mono text-green-600">$${parseFloat(value).toFixed(4)}</span>`;
+                                }
+                                if (header.includes('BID_SIZE') || header.includes('ASK_SIZE')) {
+                                    return `<span class="font-mono text-purple-600">${parseInt(value).toLocaleString()}</span>`;
+                                }
+                                if (header === 'TOTAL_VOLUME') {
+                                    return `<span class="font-mono text-indigo-600">${parseInt(value).toLocaleString()}</span>`;
+                                }
+                                if (header === 'MARKET_HOUR') {
+                                    return value ? 
+                                        '<span class="text-green-600 font-bold">●</span>' : 
+                                        '<span class="text-gray-400">○</span>';
+                                }
+                                
+                                return value;
+                            }
+                            
                             const tableHTML = `
-                                <table class="w-full text-xs">
-                                    <thead>
-                                        <tr class="bg-gray-200">
-                                            ${headers.map(h => `<th class="p-2 text-left font-medium">${h}</th>`).join('')}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${dataInfo.sample_data.map(row => 
-                                            `<tr class="border-b border-gray-200 hover:bg-gray-100">
-                                                ${headers.map(h => `<td class="p-2">${row[h] !== null ? row[h] : '-'}</td>`).join('')}
-                                            </tr>`
-                                        ).join('')}
-                                    </tbody>
-                                </table>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs">
+                                        <thead>
+                                            <tr class="bg-gray-200">
+                                                ${headers.map(h => `<th class="p-2 text-left font-medium text-gray-700">${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${dataInfo.sample_data.map(row => 
+                                                `<tr class="border-b border-gray-200 hover:bg-gray-50 transition-colors">
+                                                    ${headers.map(h => `<td class="p-2">${formatCellValue(h, row[h])}</td>`).join('')}
+                                                </tr>`
+                                            ).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500 text-center">
+                                    Showing ${dataInfo.sample_data.length} of ${dataInfo.row_count} total records
+                                </div>
                             `;
                             tablePreview.innerHTML = tableHTML;
                         } else {
@@ -1768,8 +2156,34 @@ class GANDashboard:
                         }
                     }
                     
-                    // Set default data source
-                    selectDataSource('treasury_orderbook_sample.csv', 'orderbook');
+                    // No default data source - user must select or generate data
+                    
+                    // Check if comprehensive sample exists and show option
+                    function checkComprehensiveSample() {
+                        fetch('/api/preview_csv?filename=treasury_orderbook_levels.csv')
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    // Show comprehensive option as available
+                                    const comprehensiveOption = document.getElementById('comprehensive-option');
+                                    if (comprehensiveOption) {
+                                        comprehensiveOption.className = 'p-2 bg-gradient-to-r from-blue-50 to-purple-50 rounded border border-blue-300 hover:border-blue-400 cursor-pointer transition-all text-center';
+                                        comprehensiveOption.onclick = () => window.selectDataSource('treasury_orderbook_levels.csv', 'treasury_orderbook');
+                                        comprehensiveOption.innerHTML = `
+                                            <div class="w-3 h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mx-auto mb-1"></div>
+                                            <span class="text-xs font-medium text-blue-700">🎯 Treasury Orderbook Data</span>
+                                            <div class="text-xs text-blue-600 mt-1">24h of 5-level orderbook data available</div>
+                                        `;
+                                    }
+                                }
+                            })
+                            .catch(error => {
+                                console.log('Orderbook sample not yet available');
+                            });
+                    }
+                    
+                    // Check for comprehensive sample on page load
+                    checkComprehensiveSample();
                     
                     // File upload handling
                     uploadCsvBtn.addEventListener('click', () => {
@@ -1810,13 +2224,36 @@ class GANDashboard:
                             const response = await fetch('/api/generate_sample', {method: 'POST'});
                             const result = await response.json();
                             if (result.success) {
-                                selectDataSource('generated_sample.csv', 'generated');
-                                alert('Sample generated successfully!');
+                                // Use the actual generated filename from the response
+                                const generatedFilename = result.filename;
+                                
+                                // Update the data source selection without showing popup
+                                selectDataSource(generatedFilename, 'generated');
+                                
+                                // Show a subtle success indicator instead of alert
+                                const statusElement = document.getElementById('data-source-status');
+                                const originalText = statusElement.textContent;
+                                statusElement.textContent = `✅ Sample generated: ${generatedFilename}`;
+                                statusElement.className = 'text-green-700 font-medium';
+                                
+                                // Reset status after 3 seconds
+                                setTimeout(() => {
+                                    statusElement.textContent = originalText;
+                                    statusElement.className = 'text-blue-700 font-medium';
+                                }, 3000);
+                                
+                                // No need to call additional preview functions since selectDataSource already handles it
                             }
                         } catch (error) {
                             console.error('Error generating sample:', error);
+                            // Show error in status instead of alert
+                            const statusElement = document.getElementById('data-source-status');
+                            statusElement.textContent = `❌ Error generating sample: ${error.message}`;
+                            statusElement.className = 'text-red-700 font-medium';
                         }
                     });
+                    
+                    console.log('🔍 initializeDataSourceSelection: Completed - no automatic data loading');
                 }
                 
                 // CSV upload and preview functionality
@@ -2000,51 +2437,7 @@ class GANDashboard:
                     }
                 }
                 
-                // Data source selection function
-                async function selectDataSource(filename, dataType) {
-                    try {
-                        // Safely destroy existing chart before switching data sources
-                        safeDestroyChart(window.dataPreviewChart);
-                        window.dataPreviewChart = null;
-                        
-                        // Clear and reset chart area
-                        clearChartArea();
-                        
-                        // Show loading state
-                        showChartLoading();
-                        
-                        // Update visual selection
-                        document.querySelectorAll('[onclick^="selectDataSource"]').forEach(el => {
-                            el.classList.remove('border-blue-500', 'bg-blue-50');
-                            el.classList.add('border-gray-200', 'bg-white');
-                        });
-                        
-                        // Highlight selected item
-                        event.currentTarget.classList.remove('border-gray-200', 'bg-white');
-                        event.currentTarget.classList.add('border-blue-500', 'bg-blue-50');
-                        
-                        // Set selected data source
-                        selectedDataSource = 'csv';
-                        
-                        // Get data preview
-                        const previewResponse = await fetch(`/api/preview_csv?filename=${filename}`);
-                        const previewResult = await previewResponse.json();
-                        
-                        if (previewResult.success) {
-                            showSelectedDataPreview(previewResult.data_info, previewResult.plot_data, filename, dataType);
-                            updateTrainingControls();
-                            showDataSourceStatus(`CSV Dataset: ${filename}`);
-                        } else {
-                            console.error('Error getting preview:', previewResult.error);
-                            // Show error in chart area
-                            handleChartError(new Error(previewResult.error), 'data preview loading');
-                        }
-                    } catch (error) {
-                        console.error('Error selecting data source:', error);
-                        // Show error in chart area
-                        handleChartError(error, 'data source selection');
-                    }
-                }
+                // Duplicate function removed - using the one defined in initializeDataSourceSelection()
                 
                 // Show selected data preview in the selector
                 function showSelectedDataPreview(dataInfo, plotData, filename, dataType) {
@@ -2762,11 +3155,242 @@ class GANDashboard:
             return web.json_response([])
     
     async def generate_sample(self, request):
-        """Generate synthetic sample."""
+        """Generate synthetic treasury orderbook sample with multiple levels (0-4)."""
         try:
-            # This would integrate with the trained model
-            return web.json_response({"success": True, "message": "Sample generated"})
+            import pandas as pd
+            import numpy as np
+            from datetime import datetime, timedelta
+            import random
+            
+            # Treasury bond specifications with realistic symbols and random base prices
+            base_price_ranges = {
+                'OTR2Y': (98.5, 101.0),
+                'OTR5Y': (97.5, 100.5),
+                'OTR10Y': (96.5, 99.5),
+                'OTR30Y': (95.5, 98.5),
+                'OFR2Y': (98.0, 100.5),
+                'OFR5Y': (97.0, 100.0),
+                'OFR10Y': (96.0, 99.0),
+                'OFR30Y': (95.0, 98.0)
+            }
+            
+            # Generate random base prices for each bond
+            treasury_bonds = []
+            for symbol, (min_price, max_price) in base_price_ranges.items():
+                base_price = random.uniform(min_price, max_price)
+                volatility = random.uniform(0.08, 0.20)  # Random volatility for each bond
+                treasury_bonds.append({
+                    'symbol': symbol, 
+                    'base_price': base_price, 
+                    'volatility': volatility,
+                    'min_price': min_price,
+                    'max_price': max_price
+                })
+            
+            # Generate 24 hours of minute-by-minute data (1440 data points)
+            start_time = datetime(2024, 1, 1, 9, 0, 0)  # Market open
+            timestamps = [start_time + timedelta(minutes=i) for i in range(1440)]
+            
+            # Market hours (9:00 AM - 4:00 PM ET)
+            market_hours = [(9, 16)]  # 9 AM to 4 PM
+            
+            data_rows = []
+            
+            for timestamp in timestamps:
+                # Check if within market hours
+                hour = timestamp.hour
+                is_market_hour = any(start <= hour <= end for start, end in market_hours)
+                
+                # Add some weekend gaps (Saturday = 5, Sunday = 6)
+                if timestamp.weekday() >= 5:  # Weekend
+                    continue
+                
+                # Add some holiday gaps (simplified)
+                if timestamp.month == 1 and timestamp.day == 1:  # New Year
+                    continue
+                if timestamp.month == 7 and timestamp.day == 4:  # Independence Day
+                    continue
+                if timestamp.month == 12 and timestamp.day == 25:  # Christmas
+                    continue
+                
+                for bond in treasury_bonds:
+                    # Random base price variation for each timestamp (more randomness)
+                    base_price_variation = random.uniform(-0.5, 0.5)
+                    current_base_price = bond['base_price'] + base_price_variation
+                    
+                    # Enhanced random market conditions
+                    market_trend = random.uniform(-0.2, 0.2)  # Random trend instead of sine wave
+                    intraday_volatility = random.uniform(-0.15, 0.15)  # Random volatility instead of sine wave
+                    
+                    # Economic news impact (random events) - increased frequency
+                    news_impact = 0
+                    if random.random() < 0.005:  # 0.5% chance of major news
+                        news_impact = random.uniform(-0.8, 0.8)
+                    elif random.random() < 0.02:  # 2% chance of minor news
+                        news_impact = random.uniform(-0.3, 0.3)
+                    
+                    # Fed policy expectations - more random timing
+                    fed_impact = 0
+                    if random.random() < 0.001:  # 0.1% chance of fed impact at any time
+                        fed_impact = random.uniform(-0.5, 0.5)
+                    
+                    # Additional random factors
+                    liquidity_impact = random.uniform(-0.1, 0.1)  # Random liquidity effects
+                    technical_impact = random.uniform(-0.2, 0.2)  # Random technical levels
+                    
+                    # Calculate price with enhanced randomness
+                    price_change = (
+                        market_trend + 
+                        intraday_volatility + 
+                        news_impact + 
+                        fed_impact +
+                        liquidity_impact +
+                        technical_impact +
+                        random.gauss(0, bond['volatility'] * 0.02)  # Increased random walk
+                    )
+                    
+                    new_price = current_base_price + price_change
+                    # Dynamic bounds based on bond's price range
+                    new_price = max(bond['min_price'] - 2.0, min(bond['max_price'] + 2.0, new_price))
+                    
+                    # Generate orderbook levels 0-4
+                    row = {
+                        'TIMESTAMP': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                        'SYM': bond['symbol']
+                    }
+                    
+                    # Level 0 (tightest spread) - more random spreads
+                    spread_0 = random.uniform(0.3, 2.0)  # More variable spread
+                    bid_price_0 = new_price - (spread_0 / 100) / 2
+                    ask_price_0 = new_price + (spread_0 / 100) / 2
+                    
+                    # Add random price jitter to make it less predictable
+                    bid_jitter_0 = random.uniform(-0.02, 0.02)
+                    ask_jitter_0 = random.uniform(-0.02, 0.02)
+                    bid_price_0 += bid_jitter_0
+                    ask_price_0 += ask_jitter_0
+                    
+                    row.update({
+                        'BID_PRICE_0': round(bid_price_0, 4),
+                        'BID_SIZE_0': int(random.uniform(1000, 5000)),
+                        'ASK_PRICE_0': round(ask_price_0, 4),
+                        'ASK_SIZE_0': int(random.uniform(1000, 5000))
+                    })
+                    
+                    # Level 1 - random distance from level 0
+                    level1_distance = random.uniform(0.005, 0.08)  # Random distance
+                    bid_price_1 = bid_price_0 - level1_distance
+                    ask_price_1 = ask_price_0 + level1_distance
+                    
+                    row.update({
+                        'BID_PRICE_1': round(bid_price_1, 4),
+                        'BID_SIZE_1': int(random.uniform(2000, 8000)),
+                        'ASK_PRICE_1': round(ask_price_1, 4),
+                        'ASK_SIZE_1': int(random.uniform(2000, 8000))
+                    })
+                    
+                    # Level 2 - random distance from level 1
+                    level2_distance = random.uniform(0.008, 0.12)
+                    bid_price_2 = bid_price_1 - level2_distance
+                    ask_price_2 = ask_price_1 + level2_distance
+                    
+                    row.update({
+                        'BID_PRICE_2': round(bid_price_2, 4),
+                        'BID_SIZE_2': int(random.uniform(3000, 12000)),
+                        'ASK_PRICE_2': round(ask_price_2, 4),
+                        'ASK_SIZE_2': int(random.uniform(3000, 12000))
+                    })
+                    
+                    # Level 3 - random distance from level 2
+                    level3_distance = random.uniform(0.012, 0.18)
+                    bid_price_3 = bid_price_2 - level3_distance
+                    ask_price_3 = ask_price_2 + level3_distance
+                    
+                    row.update({
+                        'BID_PRICE_3': round(bid_price_3, 4),
+                        'BID_SIZE_3': int(random.uniform(4000, 15000)),
+                        'ASK_PRICE_3': round(ask_price_3, 4),
+                        'ASK_SIZE_3': int(random.uniform(4000, 15000))
+                    })
+                    
+                    # Level 4 (widest spread) - random distance from level 3
+                    level4_distance = random.uniform(0.015, 0.25)
+                    bid_price_4 = bid_price_3 - level4_distance
+                    ask_price_4 = ask_price_3 + level4_distance
+                    
+                    row.update({
+                        'BID_PRICE_4': round(bid_price_4, 4),
+                        'BID_SIZE_4': int(random.uniform(5000, 20000)),
+                        'ASK_PRICE_4': round(ask_price_4, 4),
+                        'ASK_SIZE_4': int(random.uniform(5000, 20000))
+                    })
+                    
+                    # Add market microstructure data with enhanced randomness
+                    base_volume = random.uniform(800000, 1200000) if is_market_hour else random.uniform(50000, 200000)
+                    volume_multiplier = 1.0
+                    
+                    # Random volume spikes and drops
+                    if random.random() < 0.01:  # 1% chance of volume spike
+                        volume_multiplier = random.uniform(3.0, 5.0)
+                    elif random.random() < 0.02:  # 2% chance of volume drop
+                        volume_multiplier = random.uniform(0.1, 0.3)
+                    else:
+                        # Normal volume patterns with more randomness
+                        if timestamp.hour in [9, 10, 14, 15]:  # High activity periods
+                            volume_multiplier = random.uniform(1.5, 3.0)
+                        elif timestamp.hour in [11, 13]:  # Lunch time
+                            volume_multiplier = random.uniform(0.3, 0.7)
+                        else:
+                            volume_multiplier = random.uniform(0.8, 1.5)
+                    
+                    # Additional random volume variation
+                    volume_variation = random.uniform(0.6, 1.4)
+                    total_volume = int(base_volume * volume_multiplier * volume_variation)
+                    
+                    row.update({
+                        'TOTAL_VOLUME': total_volume,
+                        'MARKET_HOUR': is_market_hour
+                    })
+                    
+                    data_rows.append(row)
+            
+            # Create DataFrame
+            df = pd.DataFrame(data_rows)
+            
+            # Save to CSV
+            csv_dir = Path("data/csv")
+            csv_dir.mkdir(exist_ok=True)
+            
+            # Generate a unique filename with timestamp
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"generated_sample_{timestamp_str}.csv"
+            file_path = csv_dir / filename
+            
+            df.to_csv(file_path, index=False)
+            
+            # Generate summary statistics
+            summary_stats = {
+                "total_records": len(df),
+                "unique_bonds": df['SYM'].nunique(),
+                "date_range": f"{df['TIMESTAMP'].min()} to {df['TIMESTAMP'].max()}",
+                "price_range": f"${df['BID_PRICE_0'].min():.2f} - ${df['ASK_PRICE_0'].max():.2f}",
+                "total_volume": f"{df['TOTAL_VOLUME'].sum():,}",
+                "orderbook_levels": "5 levels (0-4)",
+                "data_structure": "TIMESTAMP, SYM, BID_PRICE_0-4, BID_SIZE_0-4, ASK_PRICE_0-4, ASK_SIZE_0-4"
+            }
+            
+            return web.json_response({
+                "success": True, 
+                "message": f"Generated treasury orderbook sample with {len(df)} records and 5 levels",
+                "filename": filename,
+                "file_path": str(file_path),
+                "summary": summary_stats,
+                "preview": df.head(10).to_dict('records'),
+                "generated_file": filename  # Add this for easier frontend handling
+            })
+            
         except Exception as e:
+            logger.error(f"Error generating sample: {e}")
             return web.json_response({"success": False, "error": str(e)})
     
     async def upload_csv(self, request):

@@ -87,21 +87,30 @@ class CSVDataCollector:
         # Process real CSV data
         logger.info("Processing real CSV data...")
         
-        # Combine all dataframes
-        combined_data = []
-        for name, df in data_frames.items():
+        # Process only the first CSV file (treasury_orderbook_sample.csv)
+        # This ensures we get exactly 21 features as expected
+        csv_files = list(data_frames.keys())
+        if csv_files:
+            # Use only the first CSV file to avoid concatenating multiple files
+            primary_file = csv_files[0]
+            logger.info(f"Processing primary CSV file: {primary_file}")
+            
+            df = data_frames[primary_file]
             if len(df) > sequence_length:
-                # Select numeric columns only
+                # Select numeric columns only (exclude timestamp)
                 numeric_cols = df.select_dtypes(include=[np.number]).columns
                 if len(numeric_cols) > 0:
-                    combined_data.append(df[numeric_cols].values)
-        
-        if not combined_data:
-            logger.info("No suitable numeric data found, generating synthetic data")
+                    logger.info(f"Using {len(numeric_cols)} numeric columns: {list(numeric_cols)}")
+                    all_data = df[numeric_cols].values
+                else:
+                    logger.info("No numeric columns found, generating synthetic data")
+                    return self._generate_synthetic_data(sequence_length)
+            else:
+                logger.info("Insufficient data in primary file, generating synthetic data")
+                return self._generate_synthetic_data(sequence_length)
+        else:
+            logger.info("No CSV files found, generating synthetic data")
             return self._generate_synthetic_data(sequence_length)
-        
-        # Concatenate all data
-        all_data = np.concatenate(combined_data, axis=1)
         
         # Remove rows with NaN values
         all_data = all_data[~np.isnan(all_data).any(axis=1)]
@@ -127,7 +136,7 @@ class CSVDataCollector:
         sequences = np.array(sequences)
         targets = np.array(targets)
         
-        logger.info(f"Processed CSV data: {sequences.shape[0]} sequences of shape {sequences.shape[1:]}")
+        logger.info(f"Processed CSV data: {sequences.shape[0]} sequences of shape {sequences.shape[1:]} with {sequences.shape[2]} features")
         
         return sequences, targets
     

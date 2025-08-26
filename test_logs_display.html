@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Logs Display - GAN Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .logs-container {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .timestamp { color: #888; }
+        .source { color: #00bfff; }
+        .source.error { color: #ff4444; }
+        .source.progress { color: #ffff00; }
+        .message { color: #00ff00; }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .test-logs {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Logs Display - GAN Dashboard</h1>
+    
+    <div class="container">
+        <h2>📊 SSE Connection Status</h2>
+        <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+        <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+        <div id="log-status" class="status disconnected">Log Channel: Disconnected</div>
+        
+        <div class="controls">
+            <button onclick="connectAllChannels()">🔌 Connect All Channels</button>
+            <button onclick="disconnectAllChannels()">🔌 Disconnect All Channels</button>
+            <button onclick="clearLogs()">🧹 Clear Logs</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📝 Training Logs</h2>
+        <div id="training-logs-container" class="logs-container">
+            <div class="log-entry">
+                <span class="timestamp">[Ready]</span>
+                <span class="message">Connect to SSE channels to see real-time logs</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>🧪 Test Log Generation</h2>
+        <div class="test-logs">
+            <p>This section simulates what happens when training starts and logs are generated.</p>
+            <button onclick="simulateTrainingLogs()">🚀 Simulate Training Start</button>
+            <button onclick="simulateProgressLogs()">📊 Simulate Progress Updates</button>
+            <button onclick="simulateErrorLogs()">❌ Simulate Error Logs</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📋 Instructions</h2>
+        <ol>
+            <li>Click "Connect All Channels" to establish SSE connections</li>
+            <li>Click "Simulate Training Start" to see logs appear</li>
+            <li>Check that logs are displayed in real-time</li>
+            <li>Verify that different log sources have different colors</li>
+        </ol>
+    </div>
+
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logEventSource = null;
+        let logCounter = 0;
+
+        function connectAllChannels() {
+            connectTrainingChannel();
+            connectProgressChannel();
+            connectLogChannel();
+        }
+
+        function disconnectAllChannels() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+            }
+            if (logEventSource) {
+                logEventSource.close();
+                logEventSource = null;
+            }
+            
+            document.getElementById('training-status').textContent = 'Training Channel: Disconnected';
+            document.getElementById('training-status').className = 'status disconnected';
+            document.getElementById('progress-status').textContent = 'Progress Channel: Disconnected';
+            document.getElementById('progress-status').className = 'status disconnected';
+            document.getElementById('log-status').textContent = 'Log Channel: Disconnected';
+            document.getElementById('log-status').className = 'status disconnected';
+        }
+
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                console.log('🎯 Connected to Training SSE Channel');
+                document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('🎯 Training data received:', data);
+                
+                if (data.type === 'log_entry') {
+                    addLogEntry(data);
+                }
+            };
+            
+            trainingEventSource.onerror = function() {
+                console.error('🎯 Training channel connection error');
+                document.getElementById('training-status').textContent = 'Training Channel: Disconnected';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                console.log('📊 Connected to Progress SSE Channel');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('📊 Progress data received:', data);
+                
+                if (data.type === 'log_entry') {
+                    addLogEntry(data);
+                }
+            };
+            
+            progressEventSource.onerror = function() {
+                console.error('📊 Progress channel connection error');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Disconnected';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+
+        function connectLogChannel() {
+            if (logEventSource) {
+                logEventSource.close();
+            }
+            
+            logEventSource = new EventSource('/events/logs');
+            
+            logEventSource.onopen = function() {
+                console.log('📝 Connected to Log SSE Channel');
+                document.getElementById('log-status').textContent = 'Log Channel: Connected';
+                document.getElementById('log-status').className = 'status connected';
+            };
+            
+            logEventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('📝 Log data received:', data);
+                
+                if (data.type === 'log_entry') {
+                    addLogEntry(data);
+                }
+            };
+            
+            logEventSource.onerror = function() {
+                console.error('📝 Log channel connection error');
+                document.getElementById('log-status').textContent = 'Log Channel: Disconnected';
+                document.getElementById('log-status').className = 'status disconnected';
+            };
+        }
+
+        function addLogEntry(data) {
+            const logContainer = document.getElementById('training-logs-container');
+            
+            // Clear placeholder if it exists
+            const placeholder = logContainer.querySelector('.log-entry .timestamp');
+            if (placeholder && placeholder.textContent === '[Ready]') {
+                logContainer.innerHTML = '';
+            }
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const timestamp = new Date(data.timestamp).toLocaleTimeString();
+            const source = data.data.source || 'training';
+            const message = data.data.message || '';
+            
+            // Color code based on source
+            let sourceClass = 'source';
+            if (source === 'training_error') {
+                sourceClass = 'source error';
+            } else if (source === 'training_progress') {
+                sourceClass = 'source progress';
+            }
+            
+            logEntry.innerHTML = `
+                <span class="timestamp">[${timestamp}]</span>
+                <span class="${sourceClass}">[${source}]</span>
+                <span class="message">${message}</span>
+            `;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Limit log entries
+            const maxEntries = 1000;
+            if (logContainer.children.length > maxEntries) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function clearLogs() {
+            const logContainer = document.getElementById('training-logs-container');
+            logContainer.innerHTML = `
+                <div class="log-entry">
+                    <span class="timestamp">[Cleared]</span>
+                    <span class="message">Logs cleared</span>
+                </div>
+            `;
+        }
+
+        function simulateTrainingLogs() {
+            const testLogs = [
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'GAN training started with config: config/gan_config.yaml',
+                        source: 'training',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                },
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Loading training data from: sample_timeseries.csv',
+                        source: 'training',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                },
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Initializing generator and discriminator models...',
+                        source: 'training',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            ];
+            
+            testLogs.forEach(log => addLogEntry(log));
+        }
+
+        function simulateProgressLogs() {
+            const progressLogs = [
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Epoch 1:  25%|██▌       | 25/100 [00:15<00:45, 1.67it/s]',
+                        source: 'training_progress',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                },
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Epoch 1:  50%|█████     | 50/100 [00:30<00:30, 1.67it/s]',
+                        source: 'training_progress',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                },
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Epoch 1:  75%|██████▌   | 75/100 [00:45<00:15, 1.67it/s]',
+                        source: 'training_progress',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            ];
+            
+            progressLogs.forEach(log => addLogEntry(log));
+        }
+
+        function simulateErrorLogs() {
+            const errorLogs = [
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'WARNING: Learning rate might be too high',
+                        source: 'training_error',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                },
+                {
+                    type: 'log_entry',
+                    data: {
+                        message: 'ERROR: Generator loss diverging, consider reducing learning rate',
+                        source: 'training_error',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            ];
+            
+            errorLogs.forEach(log => addLogEntry(log));
+        }
+
+        // Auto-connect on page load
+        window.addEventListener('load', function() {
+            console.log('🚀 Page loaded, auto-connecting to SSE channels...');
+            setTimeout(connectAllChannels, 1000); // Small delay to ensure page is ready
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 SSE Connection Test</h1>
+    
+    <div>
+        <button onclick="testTrainingChannel()">🎯 Test Training Channel</button>
+        <button onclick="testProgressChannel()">📊 Test Progress Channel</button>
+        <button onclick="testLogChannel()">📝 Test Log Channel</button>
+        <button onclick="sendTestData()">📤 Send Test Data</button>
+    </div>
+    
+    <div id="training-status" class="status disconnected">Training: Not connected</div>
+    <div id="progress-status" class="status disconnected">Progress: Not connected</div>
+    <div id="log-status" class="status disconnected">Log: Not connected</div>
+    
+    <div id="training-data" class="data">No training data</div>
+    <div id="progress-data" class="data">No progress data</div>
+    <div id="log-data" class="data">No log data</div>
+    
+    <div id="console-log" style="height: 300px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+    
+    <script>
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logEventSource = null;
+        
+        function testTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Testing training channel...');
+            trainingEventSource = new EventSource('http://localhost:8081/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('🎯 Training channel connected');
+                document.getElementById('training-status').textContent = 'Training: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`🎯 Training data: ${JSON.stringify(data)}`);
+                    
+                    if (data.type === 'training_update') {
+                        document.getElementById('training-data').innerHTML = `
+                            <h3>Training Update:</h3>
+                            <p>Epoch: ${data.data.epoch}</p>
+                            <p>Gen Loss: ${data.data.generator_loss}</p>
+                            <p>Disc Loss: ${data.data.discriminator_loss}</p>
+                        `;
+                    } else if (data.type === 'connection') {
+                        log(`🎯 Connection: ${data.message}`);
+                    }
+                } catch (error) {
+                    log(`🎯 Error: ${error}`);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`🎯 Training error: ${error}`);
+                document.getElementById('training-status').textContent = 'Training: Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+        
+        function testProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Testing progress channel...');
+            progressEventSource = new EventSource('http://localhost:8081/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('📊 Progress channel connected');
+                document.getElementById('progress-status').textContent = 'Progress: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📊 Progress data: ${JSON.stringify(data)}`);
+                    
+                    if (data.type === 'progress') {
+                        document.getElementById('progress-data').innerHTML = `
+                            <h3>Progress Update:</h3>
+                            <p>Epoch: ${data.epoch}</p>
+                            <p>Progress: ${data.progress_percent}%</p>
+                        `;
+                    } else if (data.type === 'connection') {
+                        log(`📊 Connection: ${data.message}`);
+                    }
+                } catch (error) {
+                    log(`📊 Error: ${error}`);
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`📊 Progress error: ${error}`);
+                document.getElementById('progress-status').textContent = 'Progress: Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+        
+        function testLogChannel() {
+            if (logEventSource) {
+                logEventSource.close();
+            }
+            
+            log('📝 Testing log channel...');
+            logEventSource = new EventSource('http://localhost:8081/events/logs');
+            
+            logEventSource.onopen = function() {
+                log('📝 Log channel connected');
+                document.getElementById('log-status').textContent = 'Log: Connected';
+                document.getElementById('log-status').className = 'status connected';
+            };
+            
+            logEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📝 Log data: ${JSON.stringify(data)}`);
+                    
+                    if (data.type === 'log_entry') {
+                        document.getElementById('log-data').innerHTML = `
+                            <h3>Log Entry:</h3>
+                            <p>Message: ${data.data.message}</p>
+                            <p>Source: ${data.data.source}</p>
+                        `;
+                    } else if (data.type === 'connection') {
+                        log(`📝 Connection: ${data.message}`);
+                    }
+                } catch (error) {
+                    log(`📝 Error: ${error}`);
+                }
+            };
+            
+            logEventSource.onerror = function(error) {
+                log(`📝 Log error: ${error}`);
+                document.getElementById('log-status').textContent = 'Log: Error';
+                document.getElementById('log-status').className = 'status disconnected';
+            };
+        }
+        
+        function sendTestData() {
+            log('📤 Sending test data...');
+            
+            // Send training data
+            fetch('http://localhost:8081/training_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    type: 'training_update',
+                    data: {
+                        epoch: 1,
+                        total_epochs: 10,
+                        generator_loss: 1.2345,
+                        discriminator_loss: 0.8765,
+                        real_scores: 0.8,
+                        fake_scores: 0.2
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log(`✅ Training data sent: ${JSON.stringify(data)}`);
+            })
+            .catch(error => {
+                log(`❌ Error sending training data: ${error}`);
+            });
+            
+            // Send progress data
+            fetch('http://localhost:8081/progress_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    type: 'progress',
+                    epoch: 1,
+                    progress_percent: 10.0,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log(`✅ Progress data sent: ${JSON.stringify(data)}`);
+            })
+            .catch(error => {
+                log(`❌ Error sending progress data: ${error}`);
+            });
+        }
+        
+        // Test all channels on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, testing SSE connections...');
+            testTrainingChannel();
+            testProgressChannel();
+            testLogChannel();
+        });
+    </script>
+</body>
+</html> 

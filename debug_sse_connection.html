@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Connection Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-label {
+            color: #6c757d;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .raw-data {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <h1>🔍 SSE Connection Debug Tool</h1>
+    
+    <div class="container">
+        <h2>🎯 Connection Status</h2>
+        <div>
+            <button onclick="connectTraining()" id="connect-training-btn">🎯 Connect Training Channel</button>
+            <button onclick="connectProgress()" id="connect-progress-btn">📊 Connect Progress Channel</button>
+            <button onclick="disconnectAll()" id="disconnect-btn">🔌 Disconnect All</button>
+        </div>
+        
+        <div class="status" id="training-status">Training: Not connected</div>
+        <div class="status" id="progress-status">Progress: Not connected</div>
+    </div>
+    
+    <div class="container">
+        <h2>📊 Live Metrics</h2>
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-value" id="current-epoch">-</div>
+                <div class="metric-label">Current Epoch</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="gen-loss">-</div>
+                <div class="metric-label">Generator Loss</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="disc-loss">-</div>
+                <div class="metric-label">Discriminator Loss</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="real-scores">-</div>
+                <div class="metric-label">Real Scores</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="fake-scores">-</div>
+                <div class="metric-label">Fake Scores</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="progress-percent">-</div>
+                <div class="metric-label">Progress %</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>📝 Connection Log</h2>
+        <div class="log" id="connection-log"></div>
+    </div>
+    
+    <div class="container">
+        <h2>📡 Raw Data Received</h2>
+        <div class="raw-data" id="raw-data"></div>
+    </div>
+    
+    <div class="container">
+        <h2>🧪 Test Data</h2>
+        <div>
+            <button onclick="sendTestTrainingData()">🎯 Send Test Training Data</button>
+            <button onclick="sendTestProgressData()">📊 Send Test Progress Data</button>
+            <button onclick="sendMultipleUpdates()">🔄 Send Multiple Updates</button>
+        </div>
+    </div>
+
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let messageCount = 0;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('connection-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateRawData(data, source) {
+            const rawDataDiv = document.getElementById('raw-data');
+            const dataEntry = document.createElement('div');
+            dataEntry.innerHTML = `
+                <strong>[${source}] ${new Date().toLocaleTimeString()}</strong><br>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+                <hr>
+            `;
+            rawDataDiv.appendChild(dataEntry);
+            rawDataDiv.scrollTop = rawDataDiv.scrollHeight;
+        }
+        
+        function connectTraining() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            const statusDiv = document.getElementById('training-status');
+            const connectBtn = document.getElementById('connect-training-btn');
+            
+            statusDiv.textContent = 'Training: Connecting...';
+            statusDiv.className = 'status connecting';
+            connectBtn.disabled = true;
+            
+            log('🎯 Connecting to training channel...', 'info');
+            
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                statusDiv.textContent = 'Training: Connected';
+                statusDiv.className = 'status connected';
+                connectBtn.disabled = false;
+                log('🎯 Training channel connected successfully', 'success');
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                messageCount++;
+                log(`🎯 Training message #${messageCount} received`, 'info');
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`🎯 Parsed training data: ${data.type}`, 'success');
+                    updateRawData(data, 'Training');
+                    
+                    if (data.type === 'training_update') {
+                        // Update UI metrics
+                        document.getElementById('current-epoch').textContent = data.data.epoch;
+                        document.getElementById('gen-loss').textContent = data.data.generator_loss.toFixed(4);
+                        document.getElementById('disc-loss').textContent = data.data.discriminator_loss.toFixed(4);
+                        document.getElementById('real-scores').textContent = data.data.real_scores.toFixed(4);
+                        document.getElementById('fake-scores').textContent = data.data.fake_scores.toFixed(4);
+                        
+                        log(`🎯 Updated metrics - Epoch: ${data.data.epoch}, Gen Loss: ${data.data.generator_loss.toFixed(4)}`, 'success');
+                    } else if (data.type === 'connection') {
+                        log(`🎯 Connection confirmed - Client ID: ${data.client_id}`, 'info');
+                    } else if (data.type === 'heartbeat') {
+                        log(`🎯 Heartbeat received`, 'info');
+                    }
+                } catch (error) {
+                    log(`🎯 Error parsing training data: ${error}`, 'error');
+                    log(`🎯 Raw data: ${event.data}`, 'error');
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                statusDiv.textContent = 'Training: Connection Error';
+                statusDiv.className = 'status disconnected';
+                connectBtn.disabled = false;
+                log(`🎯 Training channel error: ${error}`, 'error');
+            };
+        }
+        
+        function connectProgress() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            const statusDiv = document.getElementById('progress-status');
+            const connectBtn = document.getElementById('connect-progress-btn');
+            
+            statusDiv.textContent = 'Progress: Connecting...';
+            statusDiv.className = 'status connecting';
+            connectBtn.disabled = true;
+            
+            log('📊 Connecting to progress channel...', 'info');
+            
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                statusDiv.textContent = 'Progress: Connected';
+                statusDiv.className = 'status connected';
+                connectBtn.disabled = false;
+                log('📊 Progress channel connected successfully', 'success');
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                messageCount++;
+                log(`📊 Progress message #${messageCount} received`, 'info');
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📊 Parsed progress data: ${data.type}`, 'success');
+                    updateRawData(data, 'Progress');
+                    
+                    if (data.type === 'progress') {
+                        // Update progress metric
+                        document.getElementById('progress-percent').textContent = data.progress_percent + '%';
+                        log(`📊 Updated progress: ${data.progress_percent}%`, 'success');
+                    } else if (data.type === 'connection') {
+                        log(`📊 Connection confirmed - Client count: ${data.client_count}`, 'info');
+                    }
+                } catch (error) {
+                    log(`📊 Error parsing progress data: ${error}`, 'error');
+                    log(`📊 Raw data: ${event.data}`, 'error');
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                statusDiv.textContent = 'Progress: Connection Error';
+                statusDiv.className = 'status disconnected';
+                connectBtn.disabled = false;
+                log(`📊 Progress channel error: ${error}`, 'error');
+            };
+        }
+        
+        function disconnectAll() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+                document.getElementById('training-status').textContent = 'Training: Disconnected';
+                document.getElementById('training-status').className = 'status disconnected';
+                log('🎯 Training channel disconnected', 'info');
+            }
+            
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+                document.getElementById('progress-status').textContent = 'Progress: Disconnected';
+                document.getElementById('progress-status').className = 'status disconnected';
+                log('📊 Progress channel disconnected', 'info');
+            }
+        }
+        
+        async function sendTestTrainingData() {
+            const trainingData = {
+                type: 'training_update',
+                data: {
+                    epoch: Math.floor(Math.random() * 10) + 1,
+                    total_epochs: 100,
+                    generator_loss: (Math.random() * 0.7 + 0.5).toFixed(4),
+                    discriminator_loss: (Math.random() * 0.5 + 0.6).toFixed(4),
+                    real_scores: (Math.random() * 0.5 + 0.4).toFixed(4),
+                    fake_scores: (Math.random() * 0.4 + 0.1).toFixed(4)
+                },
+                timestamp: new Date().toISOString()
+            };
+            
+            try {
+                const response = await fetch('/training_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(trainingData)
+                });
+                
+                const result = await response.json();
+                log(`🧪 Test training data sent: ${result.status}`, 'success');
+                log(`🧪 Data sent: ${JSON.stringify(trainingData, null, 2)}`, 'info');
+            } catch (error) {
+                log(`🧪 Error sending test training data: ${error}`, 'error');
+            }
+        }
+        
+        async function sendTestProgressData() {
+            const progressData = {
+                type: 'progress',
+                epoch: Math.floor(Math.random() * 10) + 1,
+                progress_percent: Math.floor(Math.random() * 101),
+                timestamp: new Date().toISOString()
+            };
+            
+            try {
+                const response = await fetch('/progress_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(progressData)
+                });
+                
+                const result = await response.json();
+                log(`🧪 Test progress data sent: ${result.status}`, 'success');
+                log(`🧪 Data sent: ${JSON.stringify(progressData, null, 2)}`, 'info');
+            } catch (error) {
+                log(`🧪 Error sending test progress data: ${error}`, 'error');
+            }
+        }
+        
+        async function sendMultipleUpdates() {
+            log('🔄 Sending multiple test updates...', 'info');
+            
+            for (let i = 1; i <= 5; i++) {
+                await sendTestTrainingData();
+                await sendTestProgressData();
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            log('🔄 Multiple updates completed', 'success');
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            log('🚀 Page loaded, ready to test SSE connections', 'info');
+        };
+    </script>
+</body>
+</html> 

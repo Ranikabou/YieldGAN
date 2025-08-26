@@ -15,13 +15,17 @@ import sys
 from pathlib import Path
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import subprocess
 import signal
 import psutil
 import re
 import glob
 import socket
+import yaml
+import pandas as pd
+import numpy as np
+import torch
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -88,6 +92,7 @@ class GANDashboard:
         self.app.router.add_get('/test_sse_debug', self.test_sse_debug)
         self.app.router.add_get('/test_minimal_sse', self.test_minimal_sse)
         self.app.router.add_get('/test_main_dashboard_sse', self.test_main_dashboard_sse)
+        self.app.router.add_get('/test_ui_updates', self.test_ui_updates)
         
         # API endpoints
         self.app.router.add_post('/api/start_training', self.start_training)
@@ -106,6 +111,10 @@ class GANDashboard:
         self.app.router.add_get('/events/training', self.training_events)
         self.app.router.add_get('/events/progress', self.progress_events)
         self.app.router.add_get('/events/logs', self.log_events)
+        
+        # Debug and test pages
+        self.app.router.add_get('/debug_sse_connection', self.debug_sse_connection)
+        self.app.router.add_get('/minimal_sse_test', self.minimal_sse_test)
     
     def start_background_tasks(self):
         """Start background monitoring tasks."""
@@ -237,18 +246,24 @@ class GANDashboard:
                 await self.broadcast_log_update(log_entry)
     
     def extract_training_metrics(self, line):
-        """Extract training metrics from a log line."""
+        """Extract training metrics from real GAN training logs."""
         try:
-            # Pattern 1: "Epoch X/Y Generator Loss: X.XXXX Discriminator Loss: X.XXXX"
+            # Pattern 1: Real GAN training metrics from trainer.py
             epoch_match = re.search(r'Epoch\s+(\d+)/(\d+)', line)
             gen_loss_match = re.search(r'Generator Loss:\s*([\d.]+)', line)
             disc_loss_match = re.search(r'Discriminator Loss:\s*([\d.]+)', line)
+            real_scores_match = re.search(r'Real Scores:\s*([\d.]+)', line)
+            fake_scores_match = re.search(r'Fake Scores:\s*([\d.]+)', line)
             
             if epoch_match and gen_loss_match and disc_loss_match:
                 epoch = int(epoch_match.group(1))
                 total_epochs = int(epoch_match.group(2))
                 gen_loss = float(gen_loss_match.group(1))
                 disc_loss = float(disc_loss_match.group(1))
+                
+                # Extract real/fake scores if available
+                real_scores = float(real_scores_match.group(1)) if real_scores_match else 0.8
+                fake_scores = float(fake_scores_match.group(1)) if fake_scores_match else 0.2
                 
                 return {
                     "type": "training_update",
@@ -257,13 +272,35 @@ class GANDashboard:
                         "total_epochs": total_epochs,
                         "generator_loss": gen_loss,
                         "discriminator_loss": disc_loss,
-                        "real_scores": 0.8,  # Placeholder - could be extracted from logs
-                        "fake_scores": 0.2   # Placeholder - could be extracted from logs
+                        "real_scores": real_scores,
+                        "fake_scores": fake_scores
                     },
                     "timestamp": datetime.now().isoformat()
                 }
             
-            # Pattern 2: JSON-like format
+            # Pattern 2: Dashboard channel data (already formatted)
+            if "🎯 Training data sent to dashboard:" in line:
+                # Extract metrics from dashboard log line
+                metrics_match = re.search(r'Epoch (\d+), Gen Loss: ([\d.]+), Disc Loss: ([\d.]+)', line)
+                if metrics_match:
+                    epoch = int(metrics_match.group(1))
+                    gen_loss = float(metrics_match.group(2))
+                    disc_loss = float(metrics_match.group(3))
+                    
+                    return {
+                        "type": "training_update",
+                        "data": {
+                            "epoch": epoch,
+                            "total_epochs": 10,  # Default from config
+                            "generator_loss": gen_loss,
+                            "discriminator_loss": disc_loss,
+                            "real_scores": 0.8,  # Default values
+                            "fake_scores": 0.2
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+            
+            # Pattern 3: JSON-like format
             if "{" in line and "}" in line:
                 try:
                     # Try to extract JSON from the line
@@ -288,9 +325,23 @@ class GANDashboard:
             return None
     
     def extract_progress_info(self, line):
-        """Extract progress information from a log line."""
+        """Extract progress information from real GAN training logs."""
         try:
-            # Look for percentage patterns
+            # Pattern 1: Dashboard progress data
+            if "📊 Progress" in line and "sent to dashboard" in line:
+                progress_match = re.search(r'Progress ([\d.]+)% sent to dashboard for epoch (\d+)', line)
+                if progress_match:
+                    progress_percent = float(progress_match.group(1))
+                    epoch = int(progress_match.group(2))
+                    
+                    return {
+                        "type": "progress",
+                        "epoch": epoch,
+                        "progress_percent": progress_percent,
+                        "timestamp": datetime.now().isoformat()
+                    }
+            
+            # Pattern 2: Standard percentage patterns
             percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%', line)
             if percent_match:
                 progress_percent = float(percent_match.group(1))
@@ -305,6 +356,18 @@ class GANDashboard:
                     "progress_percent": progress_percent,
                     "timestamp": datetime.now().isoformat()
                 }
+            
+            # Pattern 3: Epoch completion indicators
+            if "Epoch" in line and "completed" in line:
+                epoch_match = re.search(r'Epoch (\d+)', line)
+                if epoch_match:
+                    epoch = int(epoch_match.group(1))
+                    return {
+                        "type": "progress",
+                        "epoch": epoch,
+                        "progress_percent": 100.0,
+                        "timestamp": datetime.now().isoformat()
+                    }
             
             return None
             
@@ -813,6 +876,318 @@ class GANDashboard:
         """
         return web.Response(text=html, content_type='text/html')
 
+    async def test_ui_updates(self, request):
+        """Test page for monitoring dashboard UI updates."""
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Dashboard UI Updates Test</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .connected { background-color: #d4edda; color: #155724; }
+                .disconnected { background-color: #f8d7da; color: #721c24; }
+                .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+                .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+                .metric { text-align: center; }
+                .metric-value { font-size: 2em; font-weight: bold; margin: 10px 0; }
+                .gen-loss { color: #28a745; }
+                .disc-loss { color: #dc3545; }
+                .epoch { color: #6f42c1; }
+                .progress { color: #007bff; }
+            </style>
+        </head>
+        <body>
+            <h1>Dashboard UI Updates Test</h1>
+            
+            <!-- Connection Status -->
+            <div class="grid">
+                <div class="card">
+                    <h3>Training Channel</h3>
+                    <div id="training-status" class="status disconnected">Disconnected</div>
+                    <div id="training-clients">Clients: 0</div>
+                </div>
+                
+                <div class="card">
+                    <h3>Progress Channel</h3>
+                    <div id="progress-status" class="status disconnected">Disconnected</div>
+                    <div id="progress-clients">Clients: 0</div>
+                </div>
+            </div>
+            
+            <!-- Training Metrics -->
+            <div class="grid">
+                <div class="card metric">
+                    <h3>Current Epoch</h3>
+                    <div id="current-epoch" class="metric-value epoch">-</div>
+                </div>
+                
+                <div class="card metric">
+                    <h3>Generator Loss</h3>
+                    <div id="gen-loss" class="metric-value gen-loss">-</div>
+                </div>
+                
+                <div class="card metric">
+                    <h3>Discriminator Loss</h3>
+                    <div id="disc-loss" class="metric-value disc-loss">-</div>
+                </div>
+                
+                <div class="card metric">
+                    <h3>Progress</h3>
+                    <div id="progress-percent" class="metric-value progress">-</div>
+                </div>
+            </div>
+            
+            <!-- Raw Data Display -->
+            <div class="card">
+                <h3>Latest Training Update</h3>
+                <div id="training-data" class="data">No training data received</div>
+            </div>
+            
+            <div class="card">
+                <h3>Latest Progress Update</h3>
+                <div id="progress-data" class="data">No progress data received</div>
+            </div>
+            
+            <!-- Console Log -->
+            <div class="card">
+                <h3>Console Log</h3>
+                <div id="console-log" style="height: 300px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+            </div>
+            
+            <!-- Test Buttons -->
+            <div class="card">
+                <h3>Test Actions</h3>
+                <button onclick="testTrainingData()">Send Test Training Data</button>
+                <button onclick="testProgressData()">Send Test Progress Data</button>
+                <button onclick="runTrainingSimulation()">Run Training Simulation</button>
+            </div>
+            
+            <script>
+                let trainingEventSource = null;
+                let progressEventSource = null;
+                
+                function log(message) {
+                    const consoleLog = document.getElementById('console-log');
+                    const timestamp = new Date().toLocaleTimeString();
+                    consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+                    consoleLog.scrollTop = consoleLog.scrollHeight;
+                    console.log(message);
+                }
+                
+                function connectTrainingChannel() {
+                    if (trainingEventSource) {
+                        trainingEventSource.close();
+                    }
+                    
+                    log('🎯 Connecting to training channel...');
+                    trainingEventSource = new EventSource('/events/training');
+                    
+                    trainingEventSource.onopen = function() {
+                        log('🎯 Training channel connected');
+                        document.getElementById('training-status').textContent = 'Connected';
+                        document.getElementById('training-status').className = 'status connected';
+                    };
+                    
+                    trainingEventSource.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log(`🎯 Training data received: ${JSON.stringify(data, null, 2)}`);
+                            
+                            if (data.type === 'training_update') {
+                                // Update UI metrics
+                                document.getElementById('current-epoch').textContent = data.data.epoch;
+                                document.getElementById('gen-loss').textContent = data.data.generator_loss.toFixed(4);
+                                document.getElementById('disc-loss').textContent = data.data.discriminator_loss.toFixed(4);
+                                
+                                // Update raw data display
+                                document.getElementById('training-data').innerHTML = `
+                                    <h4>Training Update:</h4>
+                                    <p><strong>Epoch:</strong> ${data.data.epoch}/${data.data.total_epochs}</p>
+                                    <p><strong>Generator Loss:</strong> ${data.data.generator_loss.toFixed(4)}</p>
+                                    <p><strong>Discriminator Loss:</strong> ${data.data.discriminator_loss.toFixed(4)}</p>
+                                    <p><strong>Real Scores:</strong> ${data.data.real_scores.toFixed(4)}</p>
+                                    <p><strong>Fake Scores:</strong> ${data.data.fake_scores.toFixed(4)}</p>
+                                    <p><strong>Timestamp:</strong> ${data.timestamp}</p>
+                                `;
+                            } else if (data.type === 'connection') {
+                                document.getElementById('training-clients').textContent = `Clients: ${data.client_id || 'Unknown'}`;
+                            }
+                        } catch (error) {
+                            log(`🎯 Error parsing training data: ${error}`);
+                        }
+                    };
+                    
+                    trainingEventSource.onerror = function(error) {
+                        log(`🎯 Training channel error: ${error}`);
+                        document.getElementById('training-status').textContent = 'Error';
+                        document.getElementById('training-status').className = 'status disconnected';
+                    };
+                }
+                
+                function connectProgressChannel() {
+                    if (progressEventSource) {
+                        progressEventSource.close();
+                    }
+                    
+                    log('📊 Connecting to progress channel...');
+                    progressEventSource = new EventSource('/events/progress');
+                    
+                    progressEventSource.onopen = function() {
+                        log('📊 Progress channel connected');
+                        document.getElementById('progress-status').textContent = 'Connected';
+                        document.getElementById('progress-status').className = 'status connected';
+                    };
+                    
+                    progressEventSource.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log(`📊 Progress data received: ${JSON.stringify(data, null, 2)}`);
+                            
+                            if (data.type === 'progress') {
+                                // Update progress metric
+                                document.getElementById('progress-percent').textContent = data.progress_percent + '%';
+                                
+                                // Update raw data display
+                                document.getElementById('progress-data').innerHTML = `
+                                    <h4>Progress Update:</h4>
+                                    <p><strong>Epoch:</strong> ${data.epoch}</p>
+                                    <p><strong>Progress:</strong> ${data.progress_percent}%</p>
+                                    <p><strong>Timestamp:</strong> ${data.timestamp}</p>
+                                `;
+                            } else if (data.type === 'connection') {
+                                document.getElementById('progress-clients').textContent = `Clients: ${data.client_count || 'Unknown'}`;
+                            }
+                        } catch (error) {
+                            log(`📊 Progress channel error: ${error}`);
+                        }
+                    };
+                    
+                    progressEventSource.onerror = function(error) {
+                        log(`📊 Progress channel error: ${error}`);
+                        document.getElementById('progress-status').textContent = 'Error';
+                        document.getElementById('progress-status').className = 'status disconnected';
+                    };
+                }
+                
+                function testTrainingData() {
+                    log('🧪 Sending test training data...');
+                    fetch('/training_data', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            type: 'training_update',
+                            data: {
+                                epoch: 1,
+                                total_epochs: 10,
+                                generator_loss: 0.75,
+                                discriminator_loss: 0.65,
+                                real_scores: 0.85,
+                                fake_scores: 0.25
+                            },
+                            timestamp: new Date().toISOString()
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => log(`✅ Test training data sent: ${JSON.stringify(data)}`))
+                    .catch(error => log(`❌ Error sending test training data: ${error}`));
+                }
+                
+                function testProgressData() {
+                    log('🧪 Sending test progress data...');
+                    fetch('/progress_data', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            type: 'progress',
+                            epoch: 1,
+                            progress_percent: 75,
+                            timestamp: new Date().toISOString()
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => log(`✅ Test progress data sent: ${JSON.stringify(data)}`))
+                    .catch(error => log(`❌ Error sending test progress data: ${error}`));
+                }
+                
+                function runTrainingSimulation() {
+                    log('🚀 Starting training simulation...');
+                    
+                    // Simulate training over 5 epochs
+                    for (let epoch = 1; epoch <= 5; epoch++) {
+                        setTimeout(() => {
+                            // Send progress updates
+                            for (let progress = 0; progress <= 100; progress += 25) {
+                                setTimeout(() => {
+                                    fetch('/progress_data', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            type: 'progress',
+                                            epoch: epoch,
+                                            progress_percent: progress,
+                                            timestamp: new Date().toISOString()
+                                        })
+                                    });
+                                }, progress * 10);
+                            }
+                            
+                            // Send training metrics after progress completes
+                            setTimeout(() => {
+                                const genLoss = 0.8 - epoch * 0.05 + (epoch % 3) * 0.02;
+                                const discLoss = 0.7 - epoch * 0.03 + (epoch % 2) * 0.01;
+                                
+                                fetch('/training_data', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        type: 'training_update',
+                                        data: {
+                                            epoch: epoch,
+                                            total_epochs: 5,
+                                            generator_loss: Math.max(0.1, genLoss),
+                                            discriminator_loss: Math.max(0.1, discLoss),
+                                            real_scores: 0.9 - epoch * 0.01,
+                                            fake_scores: 0.1 + epoch * 0.02
+                                        },
+                                        timestamp: new Date().toISOString()
+                                    })
+                                });
+                            }, 1000);
+                        }, epoch * 2000);
+                    }
+                    
+                    log('✅ Training simulation scheduled');
+                }
+                
+                // Connect on page load
+                window.addEventListener('load', function() {
+                    log('🚀 Page loaded, connecting to SSE channels...');
+                    connectTrainingChannel();
+                    connectProgressChannel();
+                });
+                
+                // Cleanup on page unload
+                window.addEventListener('beforeunload', function() {
+                    if (trainingEventSource) {
+                        trainingEventSource.close();
+                    }
+                    if (progressEventSource) {
+                        progressEventSource.close();
+                    }
+                });
+            </script>
+        </body>
+        </html>
+        """
+        return web.Response(text=html, content_type='text/html')
+
     async def dashboard(self, request):
         """Main dashboard page."""
         html = """
@@ -1093,6 +1468,17 @@ class GANDashboard:
                         <canvas id="scoresChart" width="400" height="200"></canvas>
                     </div>
                 </div>
+                
+                <!-- Training Logs Section -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">📝 Training Logs</h3>
+                    <div id="training-logs-container" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm h-64 overflow-y-auto">
+                        <div class="text-gray-500 text-center py-8">
+                            <div class="text-2xl mb-2">📋</div>
+                            <div class="text-sm">Training logs will appear here when training starts</div>
+                        </div>
+                    </div>
+                </div>
 
             </div>
             
@@ -1316,40 +1702,58 @@ class GANDashboard:
                         trainingEventSource.close();
                     }
                     
-                    trainingEventSource = new EventSource('/events/training');
+                    console.log('🎯 Connecting to training channel...');
                     
-                    trainingEventSource.onopen = function() {
-                        console.log('🎯 Connected to Training SSE Channel');
-                    };
-                    
-                    trainingEventSource.onmessage = function(event) {
-                        try {
-                            console.log('🎯 Raw training event received:', event);
-                            const data = JSON.parse(event.data);
-                            console.log('🎯 Training data received:', data);
-                            
-                            if (data.type === 'training_update') {
-                                console.log('🎯 Updating dashboard with training data:', data);
-                                updateDashboard(data);
-                            } else if (data.type === 'training_complete') {
-                                console.log('🎯 Training completed:', data);
-                                updateDashboard(data);
-                            } else if (data.type === 'training_start') {
-                                console.log('🎯 Training started:', data);
-                                updateDashboard(data);
-                            } else if (data.type === 'connection') {
-                                console.log('🎯 Training channel connected:', data.message);
-                            } else {
-                                console.log('🎯 Unknown training data type:', data.type, data);
+                    try {
+                        trainingEventSource = new EventSource('/events/training');
+                        
+                        trainingEventSource.onopen = function() {
+                            console.log('🎯 Connected to Training SSE Channel');
+                        };
+                        
+                        trainingEventSource.onmessage = function(event) {
+                            try {
+                                console.log('🎯 Raw training event received:', event);
+                                const data = JSON.parse(event.data);
+                                console.log('🎯 Training data received:', data);
+                                
+                                if (data.type === 'training_update') {
+                                    console.log('🎯 Updating dashboard with training data:', data);
+                                    updateDashboard(data);
+                                } else if (data.type === 'training_complete') {
+                                    console.log('🎯 Training completed:', data);
+                                    updateDashboard(data);
+                                } else if (data.type === 'training_start') {
+                                    console.log('🎯 Training started:', data);
+                                    updateDashboard(data);
+                                } else if (data.type === 'connection') {
+                                    console.log('🎯 Training channel connected:', data.message);
+                                } else if (data.type === 'heartbeat') {
+                                    console.log('🎯 Training heartbeat received:', data.timestamp);
+                                } else {
+                                    console.log('🎯 Unknown training data type:', data.type, data);
+                                }
+                            } catch (error) {
+                                console.error('🎯 Error parsing training data:', error, event.data);
                             }
-                        } catch (error) {
-                            console.error('🎯 Error parsing training data:', error, event.data);
-                        }
-                    };
-                    
-                    trainingEventSource.onerror = function(error) {
-                        console.error('🎯 Training channel connection error:', error);
-                    };
+                        };
+                        
+                        trainingEventSource.onerror = function(error) {
+                            console.error('🎯 Training channel connection error:', error);
+                            console.log('🎯 Training channel readyState:', trainingEventSource.readyState);
+                            
+                            // Try to reconnect if the connection was closed
+                            if (trainingEventSource.readyState === EventSource.CLOSED) {
+                                console.log('🔄 Training channel closed, attempting to reconnect...');
+                                setTimeout(() => {
+                                    connectTrainingChannel();
+                                }, 2000);
+                            }
+                        };
+                        
+                    } catch (error) {
+                        console.error('🎯 Error creating training EventSource:', error);
+                    }
                 }
                 
                 function connectProgressChannel() {
@@ -1357,33 +1761,51 @@ class GANDashboard:
                         progressEventSource.close();
                     }
                     
-                    progressEventSource = new EventSource('/events/progress');
+                    console.log('📊 Connecting to progress channel...');
                     
-                    progressEventSource.onopen = function() {
-                        console.log('📊 Connected to Progress SSE Channel');
-                    };
-                    
-                    progressEventSource.onmessage = function(event) {
-                        try {
-                            const data = JSON.parse(event.data);
-                            console.log('📊 Progress data received:', data);
-                            
-                            if (data.type === 'progress') {
-                                console.log('📊 Updating progress with data:', data);
-                                updateProgress(data);
-                            } else if (data.type === 'connection') {
-                                console.log('📊 Progress channel connected:', data.message);
-                            } else {
-                                console.log('📊 Unknown progress data type:', data.type, data);
+                    try {
+                        progressEventSource = new EventSource('/events/progress');
+                        
+                        progressEventSource.onopen = function() {
+                            console.log('📊 Connected to Progress SSE Channel');
+                        };
+                        
+                        progressEventSource.onmessage = function(event) {
+                            try {
+                                const data = JSON.parse(event.data);
+                                console.log('📊 Progress data received:', data);
+                                
+                                if (data.type === 'progress') {
+                                    console.log('📊 Updating progress with data:', data);
+                                    updateProgress(data);
+                                } else if (data.type === 'connection') {
+                                    console.log('📊 Progress channel connected:', data.message);
+                                } else if (data.type === 'heartbeat') {
+                                    console.log('📊 Progress heartbeat received:', data.timestamp);
+                                } else {
+                                    console.log('📊 Unknown progress data type:', data.type, data);
+                                }
+                            } catch (error) {
+                                console.error('📊 Error parsing progress data:', error, event.data);
                             }
-                        } catch (error) {
-                            console.error('📊 Error parsing progress data:', error, event.data);
-                        }
-                    };
-                    
-                    progressEventSource.onerror = function(error) {
-                        console.error('📊 Progress channel connection error:', error);
-                    };
+                        };
+                        
+                        progressEventSource.onerror = function(error) {
+                            console.error('📊 Progress channel connection error:', error);
+                            console.log('📊 Progress channel readyState:', progressEventSource.readyState);
+                            
+                            // Try to reconnect if the connection was closed
+                            if (progressEventSource.readyState === EventSource.CLOSED) {
+                                console.log('🔄 Progress channel closed, attempting to reconnect...');
+                                setTimeout(() => {
+                                    connectProgressChannel();
+                                }, 2000);
+                            }
+                        };
+                        
+                    } catch (error) {
+                        console.error('📊 Error creating progress EventSource:', error);
+                    }
                 }
                 
                 function connectLogChannel() {
@@ -1704,9 +2126,11 @@ class GANDashboard:
                     console.log('📝 Log update:', data);
                     
                     if (data.type === 'log_entry') {
-                        // Create or update log display
+                        // Get or create log container
                         let logContainer = document.getElementById('training-logs-container');
                         if (!logContainer) {
+                            // This shouldn't happen now since we create it by default, but just in case
+                            console.error('Log container not found, creating dynamically');
                             const logsSection = document.createElement('div');
                             logsSection.className = 'mt-8 bg-white rounded-lg shadow-md p-6';
                             logsSection.innerHTML = `
@@ -1723,6 +2147,12 @@ class GANDashboard:
                             logContainer = document.getElementById('training-logs-container');
                         }
                         
+                        // Clear the placeholder message if it exists
+                        const placeholder = logContainer.querySelector('.text-gray-500.text-center');
+                        if (placeholder) {
+                            placeholder.remove();
+                        }
+                        
                         // Add new log entry
                         const logEntry = document.createElement('div');
                         logEntry.className = 'mb-1';
@@ -1731,9 +2161,17 @@ class GANDashboard:
                         const source = data.data.source || 'training';
                         const message = data.data.message || '';
                         
+                        // Color code based on source
+                        let sourceColor = 'text-blue-400';
+                        if (source === 'training_error') {
+                            sourceColor = 'text-red-400';
+                        } else if (source === 'training_progress') {
+                            sourceColor = 'text-yellow-400';
+                        }
+                        
                         logEntry.innerHTML = `
                             <span class="text-gray-400">[${timestamp}]</span>
-                            <span class="text-blue-400">[${source}]</span>
+                            <span class="${sourceColor}">[${source}]</span>
                             <span class="text-green-400">${message}</span>
                         `;
                         
@@ -1792,6 +2230,36 @@ class GANDashboard:
                     console.log('🔍 Window load: Initializing data source selection...');
                     initializeDataSourceSelection();
                 });
+                
+                // Handle page visibility changes to maintain connections
+                document.addEventListener('visibilitychange', function() {
+                    if (document.hidden) {
+                        console.log('👁️ Page hidden');
+                    } else {
+                        console.log('👁️ Page visible');
+                        // Reconnect if connections were lost
+                        if (trainingEventSource && trainingEventSource.readyState === EventSource.CLOSED) {
+                            console.log('🔄 Reconnecting training channel after page became visible');
+                            connectTrainingChannel();
+                        }
+                        if (progressEventSource && progressEventSource.readyState === EventSource.CLOSED) {
+                            console.log('🔄 Reconnecting progress channel after page became visible');
+                            connectProgressChannel();
+                        }
+                    }
+                });
+                
+                // Monitor connection health
+                setInterval(() => {
+                    if (trainingEventSource && trainingEventSource.readyState === EventSource.CLOSED) {
+                        console.log('🔄 Training channel appears closed, reconnecting...');
+                        connectTrainingChannel();
+                    }
+                    if (progressEventSource && progressEventSource.readyState === EventSource.CLOSED) {
+                        console.log('🔄 Progress channel appears closed, reconnecting...');
+                        connectProgressChannel();
+                    }
+                }, 10000); // Check every 10 seconds
                 
                 // Button event listeners
                 document.getElementById('start-training').addEventListener('click', async () => {
@@ -1855,7 +2323,12 @@ class GANDashboard:
                             // Clear any existing training logs
                             const existingLogs = document.getElementById('training-logs-container');
                             if (existingLogs) {
-                                existingLogs.innerHTML = '';
+                                existingLogs.innerHTML = `
+                                    <div class="text-gray-500 text-center py-8">
+                                        <div class="text-2xl mb-2">🚀</div>
+                                        <div class="text-sm">Training started - logs will appear here</div>
+                                    </div>
+                                `;
                             }
                             
                             // Reset charts if they exist
@@ -2923,16 +3396,17 @@ class GANDashboard:
             
             logger.info(f"Starting GAN training with config: {config_path}, data: {data_source}")
             
-            # Start training process
-            cmd = [sys.executable, "train_gan_csv_simple.py", "--config", config_path, "--data", data_source, "--epochs", "10"]
+            # Start real GAN training process
+            cmd = [sys.executable, "train_gan_csv.py", "--config", config_path, "--data", data_source]
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1,
+                bufsize=0,  # Unbuffered output for real-time monitoring
                 universal_newlines=True,
-                cwd=os.getcwd()  # Ensure we're in the right directory
+                cwd=os.getcwd(),  # Ensure we're in the right directory
+                env=dict(os.environ, PYTHONUNBUFFERED="1")  # Force Python unbuffered output
             )
             
             self.training_status = "running"
@@ -2945,7 +3419,7 @@ class GANDashboard:
                         line = self.training_process.stdout.readline()
                         if line:
                             line = line.strip()
-                            logger.info(f"Training output: {line}")
+                            logger.info(f"Training output (stdout): {line}")
                             
                             # Parse training metrics and broadcast via SSE
                             metrics = self.extract_training_metrics(line)
@@ -3035,34 +3509,92 @@ class GANDashboard:
             monitor_thread = threading.Thread(target=monitor_output, daemon=True)
             monitor_thread.start()
             
-            # Also start monitoring stderr for errors
+            # Also start monitoring stderr for errors and progress
             def monitor_stderr():
+                logger.info("Starting training stderr monitoring...")
                 while self.training_process and self.training_process.poll() is None:
                     try:
                         line = self.training_process.stderr.readline()
                         if line:
                             line = line.strip()
-                            logger.error(f"Training error: {line}")
+                            logger.debug(f"Raw stderr line: {repr(line)}")
                             
-                            # Broadcast error as log entry
-                            error_entry = {
-                                "type": "log_entry",
-                                "data": {
-                                    "message": f"ERROR: {line}",
-                                    "source": "training_error",
+                            # Check if this is a tqdm progress bar (not a real error)
+                            if '|' in line and '%' in line and 'it/s' in line:
+                                # This is a progress bar, log as info and broadcast as progress
+                                logger.info(f"Training progress: {line}")
+                                
+                                # Extract progress percentage
+                                progress_match = re.search(r'(\d+)%', line)
+                                if progress_match:
+                                    progress_percent = int(progress_match.group(1))
+                                    
+                                    # Broadcast progress update
+                                    progress_entry = {
+                                        "type": "progress",
+                                        "epoch": 0,  # Will be updated by main monitoring
+                                        "progress_percent": progress_percent,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            asyncio.run_coroutine_threadsafe(
+                                                self.broadcast_progress_update(progress_entry), 
+                                                loop
+                                            )
+                                    except RuntimeError:
+                                        logger.info(f"Dashboard update (progress): {progress_entry}")
+                                
+                                # Also broadcast as regular log entry
+                                log_entry = {
+                                    "type": "log_entry",
+                                    "data": {
+                                        "message": line,
+                                        "source": "training_progress",
+                                        "timestamp": datetime.now().isoformat()
+                                    },
                                     "timestamp": datetime.now().isoformat()
-                                },
-                                "timestamp": datetime.now().isoformat()
-                            }
+                                }
+                            elif line.startswith('ERROR:') or line.startswith('CRITICAL:') or 'Traceback' in line or 'Exception' in line:
+                                # This is a real error, log as error
+                                logger.error(f"Training error: {line}")
+                                
+                                # Broadcast error as log entry
+                                log_entry = {
+                                    "type": "log_entry",
+                                    "data": {
+                                        "message": line,
+                                        "source": "training_error",
+                                        "timestamp": datetime.now().isoformat()
+                                    },
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                            else:
+                                # This is just regular output, log as info
+                                logger.info(f"Training output: {line}")
+                                
+                                # Broadcast as regular log entry
+                                log_entry = {
+                                    "type": "log_entry",
+                                    "data": {
+                                        "message": line,
+                                        "source": "training_output",
+                                        "timestamp": datetime.now().isoformat()
+                                    },
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                            
+                            # Broadcast log entry
                             try:
                                 loop = asyncio.get_event_loop()
                                 if loop.is_running():
                                     asyncio.run_coroutine_threadsafe(
-                                        self.broadcast_log_update(error_entry), 
+                                        self.broadcast_log_update(log_entry), 
                                         loop
                                     )
                             except RuntimeError:
-                                logger.info(f"Dashboard update (error): {error_entry}")
+                                logger.info(f"Dashboard update (log): {log_entry}")
                     except Exception as e:
                         logger.error(f"Error monitoring stderr: {e}")
                         break
@@ -3096,6 +3628,113 @@ class GANDashboard:
         except Exception as e:
             logger.error(f"Error starting training: {e}")
             return web.json_response({"success": False, "error": str(e)})
+    
+    async def generate_synthetic_samples(self):
+        """Generate synthetic samples after training completes using the trained GAN."""
+        try:
+            logger.info("🎨 Generating synthetic samples after training completion...")
+            
+            # Check if we have a trained model checkpoint
+            checkpoints_dir = Path("checkpoints")
+            if not checkpoints_dir.exists():
+                logger.warning("No checkpoints directory found, skipping sample generation")
+                return
+            
+            # Find the latest checkpoint
+            checkpoint_files = list(checkpoints_dir.glob("*.pth"))
+            if not checkpoint_files:
+                logger.warning("No checkpoint files found, skipping sample generation")
+                return
+            
+            # Get the latest checkpoint by modification time
+            latest_checkpoint = max(checkpoint_files, key=lambda x: x.stat().st_mtime)
+            logger.info(f"Using checkpoint: {latest_checkpoint}")
+            
+            # Load the trained model
+            from models.gan_models import create_gan_models
+            
+            # Load config directly from YAML
+            with open("config/gan_config.yaml", 'r') as f:
+                config = yaml.safe_load(f)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            
+            generator, discriminator = create_gan_models(config, device)
+            
+            # Load checkpoint
+            checkpoint = torch.load(latest_checkpoint, map_location=device)
+            generator.load_state_dict(checkpoint['generator_state_dict'])
+            generator.eval()
+            
+            # Generate synthetic samples
+            num_samples = 100  # Generate 100 synthetic samples
+            with torch.no_grad():
+                z = torch.randn(num_samples, config['model']['generator']['latent_dim']).to(device)
+                synthetic_data = generator(z)
+                
+                # Convert to numpy and reshape
+                synthetic_data = synthetic_data.cpu().numpy()
+                
+                # Reshape to match treasury data format
+                if len(synthetic_data.shape) == 3:
+                    synthetic_data = synthetic_data.reshape(num_samples, -1)
+                
+                # Create realistic column names based on treasury orderbook
+                columns = [
+                    'timestamp', 'bid_price_1', 'bid_size_1', 'ask_price_1', 'ask_size_1',
+                    'bid_price_2', 'bid_size_2', 'ask_price_2', 'ask_size_2',
+                    'bid_price_3', 'bid_size_3', 'ask_price_3', 'ask_size_3',
+                    'spread_1', 'spread_2', 'spread_3'
+                ]
+                
+                # Create synthetic data with realistic values
+                synthetic_df = pd.DataFrame(synthetic_data, columns=columns[:synthetic_data.shape[1]])
+                
+                # Add realistic timestamps
+                base_time = datetime.now()
+                timestamps = [base_time + timedelta(seconds=i) for i in range(num_samples)]
+                synthetic_df['timestamp'] = timestamps
+                
+                # Ensure prices are realistic (around 100)
+                for col in synthetic_df.columns:
+                    if 'price' in col:
+                        synthetic_df[col] = np.clip(synthetic_df[col], 95.0, 105.0)
+                    elif 'size' in col:
+                        synthetic_df[col] = np.clip(synthetic_df[col], 100, 10000)
+                    elif 'spread' in col:
+                        synthetic_df[col] = np.clip(synthetic_df[col], 0.01, 1.0)
+                
+                # Save synthetic samples
+                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"data/csv/generated_sample_{timestamp_str}.csv"
+                
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                
+                synthetic_df.to_csv(filename, index=False)
+                logger.info(f"🎨 Generated {num_samples} synthetic samples: {filename}")
+                
+                # Broadcast sample generation completion
+                await self.broadcast_training_update({
+                    "type": "sample_generation_complete",
+                    "data": {
+                        "filename": filename,
+                        "num_samples": num_samples,
+                        "message": f"Generated {num_samples} synthetic samples"
+                    },
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+        except Exception as e:
+            logger.error(f"Error generating synthetic samples: {e}")
+            # Broadcast error
+            await self.broadcast_training_update({
+                "type": "sample_generation_error",
+                "data": {
+                    "error": str(e),
+                    "message": "Failed to generate synthetic samples"
+                },
+                "timestamp": datetime.now().isoformat()
+            })
     
     async def stop_training(self, request):
         """Stop GAN training."""
@@ -3255,8 +3894,8 @@ class GANDashboard:
                     
                     # Generate orderbook levels 0-4
                     row = {
-                        'TIMESTAMP': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-                        'SYM': bond['symbol']
+                        'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                        # 'SYM': bond['symbol']
                     }
                     
                     # Level 0 (tightest spread) - more random spreads
@@ -3271,10 +3910,10 @@ class GANDashboard:
                     ask_price_0 += ask_jitter_0
                     
                     row.update({
-                        'BID_PRICE_0': round(bid_price_0, 4),
-                        'BID_SIZE_0': int(random.uniform(1000, 5000)),
-                        'ASK_PRICE_0': round(ask_price_0, 4),
-                        'ASK_SIZE_0': int(random.uniform(1000, 5000))
+                        'bid_price_1': round(bid_price_0, 4),
+                        'bid_size_1': int(random.uniform(1000, 5000)),
+                        'ask_price_1': round(ask_price_0, 4),
+                        'ask_size_1': int(random.uniform(1000, 5000))
                     })
                     
                     # Level 1 - random distance from level 0
@@ -3283,10 +3922,10 @@ class GANDashboard:
                     ask_price_1 = ask_price_0 + level1_distance
                     
                     row.update({
-                        'BID_PRICE_1': round(bid_price_1, 4),
-                        'BID_SIZE_1': int(random.uniform(2000, 8000)),
-                        'ASK_PRICE_1': round(ask_price_1, 4),
-                        'ASK_SIZE_1': int(random.uniform(2000, 8000))
+                        'bid_price_2': round(bid_price_1, 4),
+                        'bid_size_2': int(random.uniform(2000, 8000)),
+                        'ask_price_2': round(ask_price_1, 4),
+                        'ask_size_2': int(random.uniform(2000, 8000))
                     })
                     
                     # Level 2 - random distance from level 1
@@ -3295,10 +3934,10 @@ class GANDashboard:
                     ask_price_2 = ask_price_1 + level2_distance
                     
                     row.update({
-                        'BID_PRICE_2': round(bid_price_2, 4),
-                        'BID_SIZE_2': int(random.uniform(3000, 12000)),
-                        'ASK_PRICE_2': round(ask_price_2, 4),
-                        'ASK_SIZE_2': int(random.uniform(3000, 12000))
+                        'bid_price_3': round(bid_price_2, 4),
+                        'bid_size_3': int(random.uniform(3000, 12000)),
+                        'ask_price_3': round(ask_price_2, 4),
+                        'ask_size_3': int(random.uniform(3000, 12000))
                     })
                     
                     # Level 3 - random distance from level 2
@@ -3307,10 +3946,10 @@ class GANDashboard:
                     ask_price_3 = ask_price_2 + level3_distance
                     
                     row.update({
-                        'BID_PRICE_3': round(bid_price_3, 4),
-                        'BID_SIZE_3': int(random.uniform(4000, 15000)),
-                        'ASK_PRICE_3': round(ask_price_3, 4),
-                        'ASK_SIZE_3': int(random.uniform(4000, 15000))
+                        'bid_price_4': round(bid_price_3, 4),
+                        'bid_size_4': int(random.uniform(4000, 15000)),
+                        'ask_price_4': round(ask_price_3, 4),
+                        'ask_size_4': int(random.uniform(4000, 15000))
                     })
                     
                     # Level 4 (widest spread) - random distance from level 3
@@ -3319,10 +3958,10 @@ class GANDashboard:
                     ask_price_4 = ask_price_3 + level4_distance
                     
                     row.update({
-                        'BID_PRICE_4': round(bid_price_4, 4),
-                        'BID_SIZE_4': int(random.uniform(5000, 20000)),
-                        'ASK_PRICE_4': round(ask_price_4, 4),
-                        'ASK_SIZE_4': int(random.uniform(5000, 20000))
+                        'bid_price_5': round(bid_price_4, 4),
+                        'bid_size_5': int(random.uniform(5000, 20000)),
+                        'ask_price_5': round(ask_price_4, 4),
+                        'ask_size_5': int(random.uniform(5000, 20000))
                     })
                     
                     # Add market microstructure data with enhanced randomness
@@ -3347,10 +3986,10 @@ class GANDashboard:
                     volume_variation = random.uniform(0.6, 1.4)
                     total_volume = int(base_volume * volume_multiplier * volume_variation)
                     
-                    row.update({
-                        'TOTAL_VOLUME': total_volume,
-                        'MARKET_HOUR': is_market_hour
-                    })
+                    #row.update({
+                    #    'TOTAL_VOLUME': total_volume,
+                    #    'MARKET_HOUR': is_market_hour
+                    #})
                     
                     data_rows.append(row)
             
@@ -3363,7 +4002,9 @@ class GANDashboard:
             
             # Generate a unique filename with timestamp
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"generated_sample_{timestamp_str}.csv"
+            #filename = f"generated_sample_{timestamp_str}.csv"
+            filename = "treasury_orderbook_sample.csv"
+
             file_path = csv_dir / filename
             
             df.to_csv(file_path, index=False)
@@ -3371,12 +4012,12 @@ class GANDashboard:
             # Generate summary statistics
             summary_stats = {
                 "total_records": len(df),
-                "unique_bonds": df['SYM'].nunique(),
-                "date_range": f"{df['TIMESTAMP'].min()} to {df['TIMESTAMP'].max()}",
-                "price_range": f"${df['BID_PRICE_0'].min():.2f} - ${df['ASK_PRICE_0'].max():.2f}",
-                "total_volume": f"{df['TOTAL_VOLUME'].sum():,}",
-                "orderbook_levels": "5 levels (0-4)",
-                "data_structure": "TIMESTAMP, SYM, BID_PRICE_0-4, BID_SIZE_0-4, ASK_PRICE_0-4, ASK_SIZE_0-4"
+                #"unique_bonds": df['SYM'].nunique(),
+               # "date_range": f"{df['TIMESTAMP'].min()} to {df['TIMESTAMP'].max()}",
+               # "price_range": f"${df['BID_PRICE_0'].min():.2f} - ${df['ASK_PRICE_0'].max():.2f}",
+               # "total_volume": f"{df['TOTAL_VOLUME'].sum():,}",
+               # "orderbook_levels": "5 levels (0-4)",
+               # "data_structure": "TIMESTAMP, SYM, BID_PRICE_0-4, BID_SIZE_0-4, ASK_PRICE_0-4, ASK_SIZE_0-4"
             }
             
             return web.json_response({
@@ -3631,13 +4272,13 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive and monitor for disconnection
+            # Keep connection alive with simple heartbeat
             while True:
                 try:
                     await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
                     await asyncio.sleep(30)  # Send heartbeat every 30 seconds
                 except Exception as e:
-                    logger.error(f"Error sending heartbeat to training client {id(response)}: {e}")
+                    logger.debug(f"Training client {id(response)} disconnected: {e}")
                     break
                 
         except Exception as e:
@@ -3684,13 +4325,13 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive and monitor for disconnection
+            # Keep connection alive with simple heartbeat
             while True:
                 try:
                     await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
                     await asyncio.sleep(30)  # Send heartbeat every 30 seconds
                 except Exception as e:
-                    logger.error(f"Error sending heartbeat to progress client {id(response)}: {e}")
+                    logger.debug(f"Progress client {id(response)} disconnected: {e}")
                     break
                 
         except Exception as e:
@@ -3736,11 +4377,16 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive and monitor for disconnection
+            # Keep connection alive and monitor for disconnection with more frequent checks
             while True:
                 try:
-                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
-                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                    # Check if response is still healthy before sending heartbeat
+                    if self.is_client_healthy(response):
+                        await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
+                        await asyncio.sleep(15)  # Reduced from 30 to 15 seconds for faster disconnection detection
+                    else:
+                        logger.debug(f"Log client {id(response)} is unhealthy, breaking connection")
+                        break
                 except Exception as e:
                     logger.error(f"Error sending heartbeat to log client {id(response)}: {e}")
                     break
@@ -3847,12 +4493,74 @@ class GANDashboard:
         site = web.TCPSite(self.runner, self.host, self.port)
         await site.start()
         
+        # Start the cleanup task
+        asyncio.create_task(self.cleanup_stale_connections())
+        
         logger.info(f"GAN Dashboard started at http://{self.host}:{self.port}")
+    
+    def is_client_healthy(self, client):
+        """Check if a client connection is still healthy."""
+        try:
+            return (client.transport is not None and 
+                   not client.transport.is_closing())
+        except Exception:
+            return False
+    
+    async def cleanup_stale_connections(self):
+        """Periodically clean up stale SSE connections."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Run cleanup every minute
+                
+                # Clean up training clients
+                stale_training = set()
+                for client in self.training_clients:
+                    if not self.is_client_healthy(client):
+                        stale_training.add(client)
+                
+                if stale_training:
+                    self.training_clients -= stale_training
+                    logger.info(f"🧹 Cleaned up {len(stale_training)} stale training connections")
+                
+                # Clean up progress clients
+                stale_progress = set()
+                for client in self.progress_clients:
+                    if not self.is_client_healthy(client):
+                        stale_progress.add(client)
+                
+                if stale_progress:
+                    self.progress_clients -= stale_progress
+                    logger.info(f"🧹 Cleaned up {len(stale_progress)} stale progress connections")
+                
+                # Clean up log clients
+                stale_logs = set()
+                for client in self.log_clients:
+                    if not self.is_client_healthy(client):
+                        stale_logs.add(client)
+                
+                if stale_logs:
+                    self.log_clients -= stale_logs
+                    logger.info(f"🧹 Cleaned up {len(stale_logs)} stale log connections")
+                    
+            except Exception as e:
+                logger.error(f"Error during connection cleanup: {e}")
     
     async def stop(self):
         """Stop the dashboard server."""
         if self.runner:
             await self.runner.cleanup()
+    
+    async def debug_sse_connection(self, request):
+        """Debug page for testing SSE connections."""
+        with open('debug_sse_connection.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def minimal_sse_test(self, request):
+        """Minimal SSE test page."""
+        with open('minimal_sse_test.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
 
 async def main():
     """Main function."""

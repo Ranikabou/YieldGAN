@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard UI Updates Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .data { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+        .metric { text-align: center; }
+        .metric-value { font-size: 2em; font-weight: bold; margin: 10px 0; }
+        .gen-loss { color: #28a745; }
+        .disc-loss { color: #dc3545; }
+        .epoch { color: #6f42c1; }
+        .progress { color: #007bff; }
+    </style>
+</head>
+<body>
+    <h1>Dashboard UI Updates Test</h1>
+    
+    <!-- Connection Status -->
+    <div class="grid">
+        <div class="card">
+            <h3>Training Channel</h3>
+            <div id="training-status" class="status disconnected">Disconnected</div>
+            <div id="training-clients">Clients: 0</div>
+        </div>
+        
+        <div class="card">
+            <h3>Progress Channel</h3>
+            <div id="progress-status" class="status disconnected">Disconnected</div>
+            <div id="progress-clients">Clients: 0</div>
+        </div>
+    </div>
+    
+    <!-- Training Metrics -->
+    <div class="grid">
+        <div class="card metric">
+            <h3>Current Epoch</h3>
+            <div id="current-epoch" class="metric-value epoch">-</div>
+        </div>
+        
+        <div class="card metric">
+            <h3>Generator Loss</h3>
+            <div id="gen-loss" class="metric-value gen-loss">-</div>
+        </div>
+        
+        <div class="card metric">
+            <h3>Discriminator Loss</h3>
+            <div id="disc-loss" class="metric-value disc-loss">-</div>
+        </div>
+        
+        <div class="card metric">
+            <h3>Progress</h3>
+            <div id="progress-percent" class="metric-value progress">-</div>
+        </div>
+    </div>
+    
+    <!-- Raw Data Display -->
+    <div class="card">
+        <h3>Latest Training Update</h3>
+        <div id="training-data" class="data">No training data received</div>
+    </div>
+    
+    <div class="card">
+        <h3>Latest Progress Update</h3>
+        <div id="progress-data" class="data">No progress data received</div>
+    </div>
+    
+    <!-- Console Log -->
+    <div class="card">
+        <h3>Console Log</h3>
+        <div id="console-log" style="height: 300px; overflow-y: auto; background: #f0f0f0; padding: 10px; font-family: monospace; font-size: 12px;"></div>
+    </div>
+    
+    <!-- Test Buttons -->
+    <div class="card">
+        <h3>Test Actions</h3>
+        <button onclick="testTrainingData()">Send Test Training Data</button>
+        <button onclick="testProgressData()">Send Test Progress Data</button>
+        <button onclick="runTrainingSimulation()">Run Training Simulation</button>
+    </div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('🎯 Training channel connected');
+                document.getElementById('training-status').textContent = 'Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`🎯 Training data received: ${JSON.stringify(data, null, 2)}`);
+                    
+                    if (data.type === 'training_update') {
+                        // Update UI metrics
+                        document.getElementById('current-epoch').textContent = data.data.epoch;
+                        document.getElementById('gen-loss').textContent = data.data.generator_loss.toFixed(4);
+                        document.getElementById('disc-loss').textContent = data.data.discriminator_loss.toFixed(4);
+                        
+                        // Update raw data display
+                        document.getElementById('training-data').innerHTML = `
+                            <h4>Training Update:</h4>
+                            <p><strong>Epoch:</strong> ${data.data.epoch}/${data.data.total_epochs}</p>
+                            <p><strong>Generator Loss:</strong> ${data.data.generator_loss.toFixed(4)}</p>
+                            <p><strong>Discriminator Loss:</strong> ${data.data.discriminator_loss.toFixed(4)}</p>
+                            <p><strong>Real Scores:</strong> ${data.data.real_scores.toFixed(4)}</p>
+                            <p><strong>Fake Scores:</strong> ${data.data.fake_scores.toFixed(4)}</p>
+                            <p><strong>Timestamp:</strong> ${data.timestamp}</p>
+                        `;
+                    } else if (data.type === 'connection') {
+                        document.getElementById('training-clients').textContent = `Clients: ${data.client_id || 'Unknown'}`;
+                    }
+                } catch (error) {
+                    log(`🎯 Error parsing training data: ${error}`);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`🎯 Training channel error: ${error}`);
+                document.getElementById('training-status').textContent = 'Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...');
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('📊 Progress channel connected');
+                document.getElementById('progress-status').textContent = 'Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📊 Progress data received: ${JSON.stringify(data, null, 2)}`);
+                    
+                    if (data.type === 'progress') {
+                        // Update progress metric
+                        document.getElementById('progress-percent').textContent = data.progress_percent + '%';
+                        
+                        // Update raw data display
+                        document.getElementById('progress-data').innerHTML = `
+                            <h4>Progress Update:</h4>
+                            <p><strong>Epoch:</strong> ${data.epoch}</p>
+                            <p><strong>Progress:</strong> ${data.progress_percent}%</p>
+                            <p><strong>Timestamp:</strong> ${data.timestamp}</p>
+                        `;
+                    } else if (data.type === 'connection') {
+                        document.getElementById('progress-clients').textContent = `Clients: ${data.client_count || 'Unknown'}`;
+                    }
+                } catch (error) {
+                    log(`📊 Error parsing progress data: ${error}`);
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`📊 Progress channel error: ${error}`);
+                document.getElementById('progress-status').textContent = 'Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+        
+        function testTrainingData() {
+            log('🧪 Sending test training data...');
+            fetch('/training_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: 'training_update',
+                    data: {
+                        epoch: 1,
+                        total_epochs: 10,
+                        generator_loss: 0.75,
+                        discriminator_loss: 0.65,
+                        real_scores: 0.85,
+                        fake_scores: 0.25
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log(`✅ Test training data sent: ${JSON.stringify(data)}`))
+            .catch(error => log(`❌ Error sending test training data: ${error}`));
+        }
+        
+        function testProgressData() {
+            log('🧪 Sending test progress data...');
+            fetch('/progress_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: 'progress',
+                    epoch: 1,
+                    progress_percent: 75,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log(`✅ Test progress data sent: ${JSON.stringify(data)}`))
+            .catch(error => log(`❌ Error sending test progress data: ${error}`));
+        }
+        
+        function runTrainingSimulation() {
+            log('🚀 Starting training simulation...');
+            
+            // Simulate training over 5 epochs
+            for (let epoch = 1; epoch <= 5; epoch++) {
+                setTimeout(() => {
+                    // Send progress updates
+                    for (let progress = 0; progress <= 100; progress += 25) {
+                        setTimeout(() => {
+                            fetch('/progress_data', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    type: 'progress',
+                                    epoch: epoch,
+                                    progress_percent: progress,
+                                    timestamp: new Date().toISOString()
+                                })
+                            });
+                        }, progress * 10);
+                    }
+                    
+                    // Send training metrics after progress completes
+                    setTimeout(() => {
+                        const genLoss = 0.8 - epoch * 0.05 + (epoch % 3) * 0.02;
+                        const discLoss = 0.7 - epoch * 0.03 + (epoch % 2) * 0.01;
+                        
+                        fetch('/training_data', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                type: 'training_update',
+                                data: {
+                                    epoch: epoch,
+                                    total_epochs: 5,
+                                    generator_loss: Math.max(0.1, genLoss),
+                                    discriminator_loss: Math.max(0.1, discLoss),
+                                    real_scores: 0.9 - epoch * 0.01,
+                                    fake_scores: 0.1 + epoch * 0.02
+                                },
+                                timestamp: new Date().toISOString()
+                            })
+                        });
+                    }, 1000);
+                }, epoch * 2000);
+            }
+            
+            log('✅ Training simulation scheduled');
+        }
+        
+        // Connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, connecting to SSE channels...');
+            connectTrainingChannel();
+            connectProgressChannel();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+        });
+    </script>
+</body>
+</html> 

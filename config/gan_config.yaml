@@ -14,7 +14,7 @@ model:
 # Data configuration
 data_processing:
   sequence_length: 100
-  num_features: 7  # 4 yields + 3 spreads
+  num_features: 21  # Updated to match actual CSV data: 1 timestamp + 5 levels × 4 fields (bid_price, bid_size, ask_price, ask_size)
   batch_size: 32
   train_split: 0.7
   validation_split: 0.15

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal SSE Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+        .log { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 10px 0; max-height: 300px; overflow-y: auto; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>🔌 Minimal SSE Connection Test</h1>
+    
+    <div>
+        <button onclick="connectTraining()">🎯 Connect Training</button>
+        <button onclick="connectProgress()">📊 Connect Progress</button>
+        <button onclick="disconnectAll()">🔌 Disconnect All</button>
+    </div>
+    
+    <div class="status" id="training-status">Training: Not connected</div>
+    <div class="status" id="progress-status">Progress: Not connected</div>
+    
+    <div class="log" id="log"></div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function connectTraining() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            const statusDiv = document.getElementById('training-status');
+            statusDiv.textContent = 'Training: Connecting...';
+            statusDiv.className = 'status connecting';
+            
+            log('🎯 Attempting to connect to training channel...');
+            
+            try {
+                trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function() {
+                    statusDiv.textContent = 'Training: Connected';
+                    statusDiv.className = 'status connected';
+                    log('🎯 Training channel connected successfully');
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    log(`🎯 Training message received: ${event.data}`);
+                };
+                
+                trainingEventSource.onerror = function(error) {
+                    statusDiv.textContent = 'Training: Error';
+                    statusDiv.className = 'status disconnected';
+                    log(`🎯 Training channel error: ${error}`);
+                };
+                
+            } catch (error) {
+                log(`🎯 Error creating EventSource: ${error}`);
+                statusDiv.textContent = 'Training: Failed to connect';
+                statusDiv.className = 'status disconnected';
+            }
+        }
+        
+        function connectProgress() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            const statusDiv = document.getElementById('progress-status');
+            statusDiv.textContent = 'Progress: Connecting...';
+            statusDiv.className = 'status connecting';
+            
+            log('📊 Attempting to connect to progress channel...');
+            
+            try {
+                progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function() {
+                    statusDiv.textContent = 'Progress: Connected';
+                    statusDiv.className = 'status connected';
+                    log('📊 Progress channel connected successfully');
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    log(`📊 Progress message received: ${event.data}`);
+                };
+                
+                progressEventSource.onerror = function(error) {
+                    statusDiv.textContent = 'Progress: Error';
+                    statusDiv.className = 'status disconnected';
+                    log(`📊 Progress channel error: ${error}`);
+                };
+                
+            } catch (error) {
+                log(`📊 Error creating EventSource: ${error}`);
+                statusDiv.textContent = 'Progress: Failed to connect';
+                statusDiv.className = 'status disconnected';
+            }
+        }
+        
+        function disconnectAll() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+                document.getElementById('training-status').textContent = 'Training: Disconnected';
+                document.getElementById('training-status').className = 'status disconnected';
+                log('🎯 Training channel disconnected');
+            }
+            
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+                document.getElementById('progress-status').textContent = 'Progress: Disconnected';
+                document.getElementById('progress-status').className = 'status disconnected';
+                log('📊 Progress channel disconnected');
+            }
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            log('🚀 Page loaded, ready to test SSE connections');
+        };
+    </script>
+</body>
+</html> 

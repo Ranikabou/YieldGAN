@@ -71,12 +71,13 @@ class GANTrainer:
         # Create checkpoint directory
         os.makedirs('checkpoints', exist_ok=True)
         
-    def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
+    def train_epoch(self, train_loader: DataLoader, progress_callback=None) -> Dict[str, float]:
         """
         Train for one epoch.
         
         Args:
             train_loader: Training data loader
+            progress_callback: Optional callback function to report progress (callback(progress_percent))
             
         Returns:
             Dictionary with training metrics
@@ -90,6 +91,7 @@ class GANTrainer:
         epoch_fake_scores = 0.0
         
         batch_count = 0
+        total_batches = len(train_loader)
         
         for batch_idx, (real_data, _) in enumerate(tqdm(train_loader, desc=f"Epoch {self.current_epoch}")):
             batch_size = real_data.size(0)
@@ -175,6 +177,12 @@ class GANTrainer:
             epoch_real_scores += real_output.mean().item()
             epoch_fake_scores += fake_output.mean().item()
             batch_count += 1
+            
+            # Send progress update if callback is provided
+            if progress_callback is not None:
+                # Calculate progress as percentage (0-100)
+                progress_percent = int((batch_idx + 1) / total_batches * 100)
+                progress_callback(progress_percent)
         
         # Calculate average metrics
         avg_g_loss = epoch_g_loss / batch_count

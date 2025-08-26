@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt  # REMOVED: Matplotlib causes figure generation during training
+# import seaborn as sns            # REMOVED: Not needed without matplotlib
 from tqdm import tqdm
 import logging
 import os
@@ -71,12 +71,13 @@ class GANTrainer:
         # Create checkpoint directory
         os.makedirs('checkpoints', exist_ok=True)
         
-    def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
+    def train_epoch(self, train_loader: DataLoader, progress_callback=None) -> Dict[str, float]:
         """
         Train for one epoch.
         
         Args:
             train_loader: Training data loader
+            progress_callback: Optional callback function to report progress (callback(progress_percent))
             
         Returns:
             Dictionary with training metrics
@@ -90,6 +91,7 @@ class GANTrainer:
         epoch_fake_scores = 0.0
         
         batch_count = 0
+        total_batches = len(train_loader)
         
         for batch_idx, (real_data, _) in enumerate(tqdm(train_loader, desc=f"Epoch {self.current_epoch}")):
             batch_size = real_data.size(0)
@@ -175,6 +177,12 @@ class GANTrainer:
             epoch_real_scores += real_output.mean().item()
             epoch_fake_scores += fake_output.mean().item()
             batch_count += 1
+            
+            # Send progress update if callback is provided
+            if progress_callback is not None:
+                # Calculate progress as percentage (0-100)
+                progress_percent = int((batch_idx + 1) / total_batches * 100)
+                progress_callback(progress_percent)
         
         # Calculate average metrics
         avg_g_loss = epoch_g_loss / batch_count
@@ -347,36 +355,12 @@ class GANTrainer:
         logger.info(f"Checkpoint loaded: {checkpoint_path}")
     
     def plot_training_curves(self) -> None:
-        """Plot training curves."""
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        
-        # Generator loss
-        axes[0, 0].plot(self.generator_losses)
-        axes[0, 0].set_title('Generator Loss')
-        axes[0, 0].set_xlabel('Epoch')
-        axes[0, 0].set_ylabel('Loss')
-        
-        # Discriminator loss
-        axes[0, 1].plot(self.discriminator_losses)
-        axes[0, 1].set_title('Discriminator Loss')
-        axes[0, 1].set_xlabel('Epoch')
-        axes[0, 1].set_ylabel('Loss')
-        
-        # Real scores
-        axes[1, 0].plot(self.discriminator_real_scores)
-        axes[1, 0].set_title('Real Data Scores')
-        axes[1, 0].set_xlabel('Epoch')
-        axes[1, 0].set_ylabel('Score')
-        
-        # Fake scores
-        axes[1, 1].plot(self.discriminator_fake_scores)
-        axes[1, 1].set_title('Fake Data Scores')
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel('Score')
-        
-        plt.tight_layout()
-        plt.savefig('training_curves.png', dpi=300, bbox_inches='tight')
-        plt.show()
+        """Plot training curves - DISABLED to prevent matplotlib figure generation during training."""
+        logger.info("📊 Training curves plotting disabled for SSE dashboard compatibility")
+        logger.info(f"📈 Training metrics available: Generator losses: {len(self.generator_losses)}, "
+                   f"Discriminator losses: {len(self.discriminator_losses)}")
+        # REMOVED: matplotlib plotting to prevent figures from appearing during training
+        # All training visualization is now handled by the web dashboard SSE streams
     
     def generate_sample(self, num_samples: int = 1) -> torch.Tensor:
         """

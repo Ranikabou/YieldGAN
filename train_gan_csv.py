@@ -5,9 +5,15 @@ Modified version for loading data from CSV files instead of APIs.
 Now includes dashboard channel integration for real-time monitoring.
 """
 
+# Critical: Set threading limits before importing any libraries to prevent segfaults on macOS
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import argparse
 import logging
-import os
 import sys
 import yaml
 from pathlib import Path
@@ -25,6 +31,10 @@ from evaluation.metrics import evaluate_treasury_gan
 import torch
 import numpy as np
 
+# Set torch threading after import
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -34,9 +44,41 @@ logger = logging.getLogger(__name__)
 class DashboardChannelSender:
     """Class to send training data and progress to dashboard channels."""
     
-    def __init__(self, dashboard_url="http://localhost:8081"):
-        self.dashboard_url = dashboard_url
+    def __init__(self, dashboard_url=None):
+        # Auto-detect dashboard port by trying common ports
+        if dashboard_url is None:
+            self.dashboard_url = self._find_dashboard_url()
+        else:
+            self.dashboard_url = dashboard_url
         self.total_epochs = None
+        logger.info(f"📡 Dashboard URL set to: {self.dashboard_url}")
+    
+    def _find_dashboard_url(self):
+        """Find the active dashboard URL using centralized port management."""
+        try:
+            from utils.port_manager import get_dashboard_url
+            url = get_dashboard_url()
+            logger.info(f"✅ Found dashboard URL via port manager: {url}")
+            return url
+        except ImportError:
+            logger.warning("Port manager not available, falling back to manual detection")
+            # Fallback to manual detection
+            import requests
+            common_ports = [8083, 8081, 8082, 8080, 8084]  # Updated order based on recent usage
+            
+            for port in common_ports:
+                try:
+                    url = f"http://localhost:{port}"
+                    response = requests.get(f"{url}/api/training_status", timeout=2)
+                    if response.status_code == 200:
+                        logger.info(f"✅ Found dashboard running on port {port}")
+                        return url
+                except:
+                    continue
+            
+            # Fallback to default
+            logger.warning("🔍 Could not detect dashboard port, using default 8083")
+            return "http://localhost:8083"
     
     def set_total_epochs(self, total_epochs):
         """Set the total number of epochs for progress calculation."""
@@ -250,8 +292,18 @@ def custom_train_with_dashboard(trainer, train_loader, val_loader, dashboard_sen
         # Send progress update for epoch start
         dashboard_sender.send_progress_data(epoch, 0)
         
-        # Train epoch
-        train_metrics = trainer.train_epoch(train_loader)
+        # Create progress callback function for this epoch
+        last_sent_progress = -1  # Track last sent progress to avoid duplicates
+        
+        def progress_callback(progress_percent):
+            nonlocal last_sent_progress
+            # Only send if progress has actually changed
+            if progress_percent != last_sent_progress:
+                dashboard_sender.send_progress_data(epoch, progress_percent)
+                last_sent_progress = progress_percent
+        
+        # Train epoch with progress callback
+        train_metrics = trainer.train_epoch(train_loader, progress_callback=progress_callback)
         
         # Validate
         val_metrics = trainer.validate(val_loader)
@@ -271,7 +323,7 @@ def custom_train_with_dashboard(trainer, train_loader, val_loader, dashboard_sen
             train_metrics['fake_scores']
         )
         
-        # Send progress update for epoch completion
+        # Ensure we send 100% at the end of epoch
         dashboard_sender.send_progress_data(epoch, 100)
         
         # Log progress
@@ -321,7 +373,11 @@ def evaluate_model(trainer: GANTrainer, test_loader, scaler, config: dict):
     logger.info("Evaluating model...")
     
     # Generate synthetic data
-    synthetic_data = trainer.generate_synthetic_data(len(test_loader.dataset))
+    synthetic_data = trainer.generate_sample(num_samples=len(test_loader.dataset))
+    
+    # Convert to numpy if it's a tensor
+    if torch.is_tensor(synthetic_data):
+        synthetic_data = synthetic_data.cpu().numpy()
     
     # Get real data
     real_data = []
@@ -410,7 +466,12 @@ def main():
     device = setup_environment()
     
     # Initialize dashboard sender
-    dashboard_url = config.get('dashboard', {}).get('url', "http://localhost:8081")
+    # Use port manager for automatic dashboard URL detection  
+    try:
+        from utils.port_manager import get_dashboard_url
+        dashboard_url = get_dashboard_url()
+    except ImportError:
+        dashboard_url = config.get('dashboard', {}).get('url', "http://localhost:8083")
     dashboard_sender = DashboardChannelSender(dashboard_url)
     
     # Collect CSV data
@@ -449,4 +510,7 @@ def main():
     logger.info("CSV-based training pipeline completed successfully!")
 
 if __name__ == "__main__":
+    # Critical: Set multiprocessing start method to 'spawn' on macOS to prevent segfaults
+    import multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
     main() 

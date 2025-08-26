@@ -26,8 +26,15 @@ logger = logging.getLogger(__name__)
 class DashboardChannelSender:
     """Class to send training data and progress to dashboard channels."""
     
-    def __init__(self, dashboard_url="http://localhost:8081"):
-        self.dashboard_url = dashboard_url
+    def __init__(self, dashboard_url=None):
+        if dashboard_url is None:
+            try:
+                from utils.port_manager import get_dashboard_url
+                self.dashboard_url = get_dashboard_url()
+            except ImportError:
+                self.dashboard_url = "http://localhost:8083"  # Updated default
+        else:
+            self.dashboard_url = dashboard_url
         self.total_epochs = None
     
     def set_total_epochs(self, total_epochs):
@@ -113,16 +120,16 @@ def simulate_training(dashboard_sender, epochs=10):
         
         # Send progress start
         dashboard_sender.send_progress_data(epoch, 0)
-        time.sleep(0.5)
+        time.sleep(0.1)
         
-        # Simulate training progress
-        for progress in [25, 50, 75]:
+        # Simulate training progress with granular updates
+        for progress in range(1, 100):
             dashboard_sender.send_progress_data(epoch, progress)
-            time.sleep(0.3)
+            time.sleep(0.02)  # Small delay to simulate realistic progress
         
         # Simulate training completion
         dashboard_sender.send_progress_data(epoch, 100)
-        time.sleep(0.5)
+        time.sleep(0.1)
         
         # Generate simulated training metrics
         gen_loss = 0.8 - epoch * 0.05 + (epoch % 3) * 0.02
@@ -172,7 +179,12 @@ def main():
         return
     
     # Initialize dashboard sender
-    dashboard_url = config.get('dashboard', {}).get('url', "http://localhost:8081")
+    # Use port manager for automatic dashboard URL detection
+    try:
+        from utils.port_manager import get_dashboard_url
+        dashboard_url = get_dashboard_url()
+    except ImportError:
+        dashboard_url = config.get('dashboard', {}).get('url', "http://localhost:8083")
     dashboard_sender = DashboardChannelSender(dashboard_url)
     
     logger.info(f"Using data source: {args.data}")

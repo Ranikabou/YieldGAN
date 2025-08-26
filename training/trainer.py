@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt  # REMOVED: Matplotlib causes figure generation during training
+# import seaborn as sns            # REMOVED: Not needed without matplotlib
 from tqdm import tqdm
 import logging
 import os
@@ -355,36 +355,12 @@ class GANTrainer:
         logger.info(f"Checkpoint loaded: {checkpoint_path}")
     
     def plot_training_curves(self) -> None:
-        """Plot training curves."""
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        
-        # Generator loss
-        axes[0, 0].plot(self.generator_losses)
-        axes[0, 0].set_title('Generator Loss')
-        axes[0, 0].set_xlabel('Epoch')
-        axes[0, 0].set_ylabel('Loss')
-        
-        # Discriminator loss
-        axes[0, 1].plot(self.discriminator_losses)
-        axes[0, 1].set_title('Discriminator Loss')
-        axes[0, 1].set_xlabel('Epoch')
-        axes[0, 1].set_ylabel('Loss')
-        
-        # Real scores
-        axes[1, 0].plot(self.discriminator_real_scores)
-        axes[1, 0].set_title('Real Data Scores')
-        axes[1, 0].set_xlabel('Epoch')
-        axes[1, 0].set_ylabel('Score')
-        
-        # Fake scores
-        axes[1, 1].plot(self.discriminator_fake_scores)
-        axes[1, 1].set_title('Fake Data Scores')
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel('Score')
-        
-        plt.tight_layout()
-        plt.savefig('training_curves.png', dpi=300, bbox_inches='tight')
-        plt.show()
+        """Plot training curves - DISABLED to prevent matplotlib figure generation during training."""
+        logger.info("📊 Training curves plotting disabled for SSE dashboard compatibility")
+        logger.info(f"📈 Training metrics available: Generator losses: {len(self.generator_losses)}, "
+                   f"Discriminator losses: {len(self.discriminator_losses)}")
+        # REMOVED: matplotlib plotting to prevent figures from appearing during training
+        # All training visualization is now handled by the web dashboard SSE streams
     
     def generate_sample(self, num_samples: int = 1) -> torch.Tensor:
         """

@@ -30,13 +30,27 @@ import torch
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
 
+# Import port management utility
+from utils.port_manager import get_port_manager, register_dashboard, cleanup_dashboard
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def find_free_port(start_port=8081):
     """Find a free port starting from start_port."""
+    # Always try 8081 first
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('localhost', 8081))
+            return 8081
+    except OSError:
+        pass
+    
+    # If 8081 is not available, try other ports
     for port in range(start_port, start_port + 100):
+        if port == 8081:  # Skip 8081 since we already tried it
+            continue
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(('localhost', port))
@@ -48,7 +62,14 @@ def find_free_port(start_port=8081):
 class GANDashboard:
     def __init__(self, host='localhost', port=None):
         self.host = host
-        self.port = port or find_free_port()
+        self.port_manager = get_port_manager()
+        
+        # Use port manager for intelligent port selection
+        if port:
+            self.port = port
+        else:
+            self.port = self.port_manager.find_free_port()
+            
         if not self.port:
             raise RuntimeError("No free ports available")
         
@@ -115,6 +136,11 @@ class GANDashboard:
         # Debug and test pages
         self.app.router.add_get('/debug_sse_connection', self.debug_sse_connection)
         self.app.router.add_get('/minimal_sse_test', self.minimal_sse_test)
+        self.app.router.add_get('/test_sse_connection_debug', self.test_sse_connection_debug)
+        self.app.router.add_get('/test_main_dashboard_simple', self.test_main_dashboard_simple)
+        self.app.router.add_get('/test_sse_connection_simple', self.test_sse_connection_simple)
+        self.app.router.add_get('/debug_sse_connections', self.debug_sse_connections)
+        self.app.router.add_get('/test_sse_simple', self.test_sse_simple)
     
     def start_background_tasks(self):
         """Start background monitoring tasks."""
@@ -465,6 +491,10 @@ class GANDashboard:
                             log(`🎯 Training data received: ${JSON.stringify(data, null, 2)}`);
                             
                             if (data.type === 'training_update') {
+                                // Update the main dashboard UI elements
+                                updateDashboard(data);
+                                
+                                // Also update the training data display
                                 document.getElementById('training-data').innerHTML = `
                                     <h3>Training Update:</h3>
                                     <pre>${JSON.stringify(data, null, 2)}</pre>
@@ -1047,8 +1077,14 @@ class GANDashboard:
                             log(`📊 Progress data received: ${JSON.stringify(data, null, 2)}`);
                             
                             if (data.type === 'progress') {
-                                // Update progress metric
-                                document.getElementById('progress-percent').textContent = data.progress_percent + '%';
+                                // Update the main dashboard progress element
+                                const progressElement = document.getElementById('progress-percent');
+                                if (progressElement) {
+                                    progressElement.textContent = data.progress_percent + '%';
+                                    log(`✅ Updated progress to ${data.progress_percent}%`);
+                                } else {
+                                    log(`❌ progress-percent element not found`);
+                                }
                                 
                                 // Update raw data display
                                 document.getElementById('progress-data').innerHTML = `
@@ -1353,7 +1389,12 @@ class GANDashboard:
                         <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
                             <h4 class="text-md font-medium text-blue-700 mb-2">🚀 Training Controls</h4>
                             <div class="flex items-center justify-between">
-                                <div class="flex space-x-3">
+                                <div class="flex items-center space-x-3">
+                                    <div class="flex items-center space-x-2">
+                                        <label for="epochs-input" class="text-sm font-medium text-blue-700">Epochs:</label>
+                                        <input type="number" id="epochs-input" value="5" min="1" max="1000" 
+                                               class="w-16 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
                                     <button id="start-training" class="training-btn bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 font-medium text-sm">
                                         ▶️ Start Training
                                     </button>
@@ -1372,6 +1413,18 @@ class GANDashboard:
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Training Progress Bar -->
+                    <div id="training-progress-section" class="mt-4 p-4 bg-green-50 rounded-lg border border-green-200" style="display: none;">
+                        <h4 class="text-md font-medium text-green-700 mb-2">📊 Overall Training Progress</h4>
+                        <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                            <div id="overall-progress-bar" class="bg-green-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-sm text-green-600">
+                            <span>Epoch <span id="overall-epoch">0</span> of <span id="total-epochs">10</span></span>
+                            <span id="overall-progress-text">0% complete</span>
                         </div>
                     </div>
                     
@@ -1449,8 +1502,9 @@ class GANDashboard:
                                 <i data-feather="clock" class="w-5 h-5"></i>
                             </div>
                             <div class="ml-3">
-                                <h3 class="text-sm font-semibold text-gray-700">Epoch</h3>
-                                <p id="current-epoch" class="text-xl font-bold text-purple-600">-</p>
+                                <h3 class="text-sm font-semibold text-gray-700">📊 Training Progress</h3>
+                                <p id="training-progress-display" class="text-xl font-bold text-purple-600">0.0%</p>
+                                <p id="training-epoch-display" class="text-sm text-gray-600">Epoch -</p>
                             </div>
                         </div>
                     </div>
@@ -1469,16 +1523,7 @@ class GANDashboard:
                     </div>
                 </div>
                 
-                <!-- Training Logs Section -->
-                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                    <h3 class="text-lg font-semibold text-gray-700 mb-4">📝 Training Logs</h3>
-                    <div id="training-logs-container" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm h-64 overflow-y-auto">
-                        <div class="text-gray-500 text-center py-8">
-                            <div class="text-2xl mb-2">📋</div>
-                            <div class="text-sm">Training logs will appear here when training starts</div>
-                        </div>
-                    </div>
-                </div>
+
 
             </div>
             
@@ -1728,8 +1773,7 @@ class GANDashboard:
                                     updateDashboard(data);
                                 } else if (data.type === 'connection') {
                                     console.log('🎯 Training channel connected:', data.message);
-                                } else if (data.type === 'heartbeat') {
-                                    console.log('🎯 Training heartbeat received:', data.timestamp);
+
                                 } else {
                                     console.log('🎯 Unknown training data type:', data.type, data);
                                 }
@@ -1780,8 +1824,7 @@ class GANDashboard:
                                     updateProgress(data);
                                 } else if (data.type === 'connection') {
                                     console.log('📊 Progress channel connected:', data.message);
-                                } else if (data.type === 'heartbeat') {
-                                    console.log('📊 Progress heartbeat received:', data.timestamp);
+
                                 } else {
                                     console.log('📊 Unknown progress data type:', data.type, data);
                                 }
@@ -1809,32 +1852,35 @@ class GANDashboard:
                 }
                 
                 function connectLogChannel() {
-                    if (logEventSource) {
-                        logEventSource.close();
-                    }
-                    
-                    logEventSource = new EventSource('/events/logs');
-                    
-                    logEventSource.onopen = function() {
-                        console.log('📝 Connected to Log SSE Channel');
-                        document.getElementById('log-status').textContent = 'Connected';
-                    };
-                    
-                    logEventSource.onmessage = function(event) {
-                        const data = JSON.parse(event.data);
-                        console.log('📝 Log data received:', data);
-                        
-                        if (data.type === 'log_entry') {
-                            updateLogs(data);
-                        } else if (data.type === 'connection') {
-                            console.log('📝 Log channel connected:', data.message);
-                        }
-                    };
-                    
-                    logEventSource.onerror = function() {
-                        console.error('📝 Log channel connection error');
-                        document.getElementById('log-status').textContent = 'Disconnected';
-                    };
+                    // DISABLED: Excessive log polling was causing UI refresh issues
+                    // The logs channel was making requests every 3-4 seconds causing SSE interference
+                    console.log('📝 Log channel disabled to prevent SSE interference');
+                    // if (logEventSource) {
+                    //     logEventSource.close();
+                    // }
+                    // 
+                    // logEventSource = new EventSource('/events/logs');
+                    // 
+                    // logEventSource.onopen = function() {
+                    //     console.log('📝 Connected to Log SSE Channel');
+                    //     document.getElementById('log-status').textContent = 'Connected';
+                    // };
+                    // 
+                    // logEventSource.onmessage = function(event) {
+                    //     const data = JSON.parse(event.data);
+                    //     console.log('📝 Log data received:', data);
+                    //     
+                    //     if (data.type === 'log_entry') {
+                    //         updateLogs(data);
+                    //     } else if (data.type === 'connection') {
+                    //         console.log('📝 Log channel connected:', data.message);
+                    //     }
+                    // };
+                    // 
+                    // logEventSource.onerror = function() {
+                    //     console.error('📝 Log channel connection error');
+                    //     document.getElementById('log-status').textContent = 'Disconnected';
+                    // };
                 }
                 
                 function disconnectAllChannels() {
@@ -1860,6 +1906,13 @@ class GANDashboard:
                     console.log('🎯 Data type:', data.type);
                     console.log('🎯 Data content:', JSON.stringify(data, null, 2));
                     
+                    // Debug: Check if key elements exist
+                    console.log('🔍 DOM Elements check:');
+                    console.log('  - status-text:', document.getElementById('status-text'));
+                    console.log('  - gen-loss:', document.getElementById('gen-loss'));
+                    console.log('  - training controls:', document.querySelector('.p-4.bg-blue-50'));
+                    console.log('  - main container:', document.querySelector('.max-w-7xl'));
+                    
                     if (data.type === 'training_update') {
                         console.log('🎯 Processing training update:', data.data);
                         
@@ -1877,12 +1930,10 @@ class GANDashboard:
                         // Update status cards
                         const genLossElement = document.getElementById('gen-loss');
                         const discLossElement = document.getElementById('disc-loss');
-                        const currentEpochElement = document.getElementById('current-epoch');
                         
                         console.log('🎯 Found elements:', {
                             genLoss: genLossElement,
-                            discLoss: discLossElement,
-                            currentEpoch: currentEpochElement
+                            discLoss: discLossElement
                         });
                         
                         if (genLossElement) {
@@ -1899,11 +1950,23 @@ class GANDashboard:
                             console.error('❌ disc-loss element not found');
                         }
                         
-                        if (currentEpochElement) {
-                            currentEpochElement.textContent = data.data.epoch;
-                            console.log('✅ Updated current epoch:', data.data.epoch);
-                        } else {
-                            console.error('❌ current-epoch element not found');
+                        // Reset training progress display when new training data comes in
+                        const trainingProgressElement = document.getElementById('training-progress-display');
+                        const trainingEpochElement = document.getElementById('training-epoch-display');
+                        if (trainingProgressElement) {
+                            trainingProgressElement.textContent = '0.0%';
+                            console.log('✅ Reset training progress to 0.0%');
+                        }
+                        if (trainingEpochElement) {
+                            trainingEpochElement.textContent = `Epoch ${data.data.epoch || 0}`;
+                            console.log('✅ Updated training epoch:', data.data.epoch);
+                        }
+                        
+                        // Update total epochs in overall progress section
+                        const totalEpochsElement = document.getElementById('total-epochs');
+                        if (totalEpochsElement && data.data.total_epochs) {
+                            totalEpochsElement.textContent = data.data.total_epochs;
+                            console.log('✅ Updated total epochs:', data.data.total_epochs);
                         }
                         
                         // Update charts
@@ -1944,6 +2007,26 @@ class GANDashboard:
                             trainingStatusIndicator.classList.remove('hidden');
                         }
                         
+                        // Show and initialize overall training progress section
+                        const overallProgressSection = document.getElementById('training-progress-section');
+                        const totalEpochsElement = document.getElementById('total-epochs');
+                        if (overallProgressSection && totalEpochsElement) {
+                            overallProgressSection.style.display = 'block';
+                            // Reset progress to 0 when training starts
+                            const overallProgressBar = document.getElementById('overall-progress-bar');
+                            const overallProgressText = document.getElementById('overall-progress-text');
+                            if (overallProgressBar && overallProgressText) {
+                                overallProgressBar.style.width = '0%';
+                                overallProgressText.textContent = 'Overall: 0% complete';
+                            }
+                        }
+                        
+                        // Reset epoch progress display
+                        const epochProgressElement = document.getElementById('epoch-progress');
+                        if (epochProgressElement) {
+                            epochProgressElement.textContent = '0% complete';
+                        }
+                        
                         // Show training info
                         const trainingInfo = document.createElement('div');
                         trainingInfo.className = 'mt-4 p-4 bg-green-50 rounded-lg border border-green-200';
@@ -1963,9 +2046,19 @@ class GANDashboard:
                             existingInfo.remove();
                         }
                         
-                        // Insert after training controls
+                        // Insert after training controls (with null check)
                         const trainingControls = document.querySelector('.p-4.bg-blue-50');
-                        trainingControls.parentNode.insertBefore(trainingInfo, trainingControls.nextSibling);
+                        if (trainingControls && trainingControls.parentNode) {
+                            trainingControls.parentNode.insertBefore(trainingInfo, trainingControls.nextSibling);
+                        } else {
+                            // Fallback: append to main container
+                            const mainContainer = document.querySelector('.max-w-7xl');
+                            if (mainContainer) {
+                                mainContainer.appendChild(trainingInfo);
+                            } else {
+                                console.warn('Could not find container to insert training info');
+                            }
+                        }
                         
                     } else if (data.type === 'training_update') {
                         // Check if this is the final epoch completion
@@ -1998,6 +2091,12 @@ class GANDashboard:
                                     trainingStatusIndicator.classList.add('hidden');
                                 }
                                 
+                                // Hide overall training progress section
+                                const overallProgressSection = document.getElementById('training-progress-section');
+                                if (overallProgressSection) {
+                                    overallProgressSection.style.display = 'none';
+                                }
+                                
                                 // Show completion notification
                                 showCompletionNotification('Training completed successfully!', 'success');
                             }
@@ -2021,6 +2120,12 @@ class GANDashboard:
                             trainingStatusIndicator.classList.add('hidden');
                         }
                         
+                        // Hide overall training progress section
+                        const overallProgressSection = document.getElementById('training-progress-section');
+                        if (overallProgressSection) {
+                            overallProgressSection.style.display = 'none';
+                        }
+                        
                         // Show completion info
                         const completionInfo = document.createElement('div');
                         completionInfo.className = `mt-4 p-4 ${data.data.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} rounded-lg border`;
@@ -2041,9 +2146,19 @@ class GANDashboard:
                             existingCompletion.remove();
                         }
                         
-                        // Insert after training controls
+                        // Insert after training controls (with null check)
                         const trainingControls = document.querySelector('.p-4.bg-blue-50');
-                        trainingControls.parentNode.insertBefore(completionInfo, trainingControls.nextSibling);
+                        if (trainingControls && trainingControls.parentNode) {
+                            trainingControls.parentNode.insertBefore(completionInfo, trainingControls.nextSibling);
+                        } else {
+                            // Fallback: append to main container
+                            const mainContainer = document.querySelector('.max-w-7xl');
+                            if (mainContainer) {
+                                mainContainer.appendChild(completionInfo);
+                            } else {
+                                console.warn('Could not find container to insert completion info');
+                            }
+                        }
                         
                     } else if (data.type === 'status_update') {
                         console.log('📊 Status update:', data.data);
@@ -2067,13 +2182,23 @@ class GANDashboard:
                                     <div id="training-progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
                                 </div>
                                 <div class="mt-2 text-sm text-blue-600">
-                                    <span id="progress-text">0%</span> - Epoch <span id="progress-epoch">0</span>
+                                    <span id="progress-text">0%</span>
                                 </div>
                             `;
                             
-                            // Insert after training controls
+                            // Insert after training controls (with null check)
                             const trainingControls = document.querySelector('.p-4.bg-blue-50');
-                            trainingControls.parentNode.insertBefore(progressContainer, trainingControls.nextSibling);
+                            if (trainingControls && trainingControls.parentNode) {
+                                trainingControls.parentNode.insertBefore(progressContainer, trainingControls.nextSibling);
+                            } else {
+                                // Fallback: append to main container
+                                const mainContainer = document.querySelector('.max-w-7xl');
+                                if (mainContainer) {
+                                    mainContainer.appendChild(progressContainer);
+                                } else {
+                                    console.warn('Could not find container to insert progress container');
+                                }
+                            }
                             
                             progressBar = document.getElementById('training-progress-bar');
                         }
@@ -2082,7 +2207,49 @@ class GANDashboard:
                         const progressPercent = data.progress_percent || 0;
                         progressBar.style.width = `${progressPercent}%`;
                         document.getElementById('progress-text').textContent = `${progressPercent.toFixed(1)}%`;
-                        document.getElementById('progress-epoch').textContent = data.epoch || 0;
+                        
+                        // Update training progress display in status cards
+                        const trainingProgressElement = document.getElementById('training-progress-display');
+                        const trainingEpochElement = document.getElementById('training-epoch-display');
+                        if (trainingProgressElement) {
+                            trainingProgressElement.textContent = `${progressPercent.toFixed(1)}%`;
+                        }
+                        if (trainingEpochElement) {
+                            trainingEpochElement.textContent = `Epoch ${data.epoch || 0}`;
+                        }
+                        
+                        // Update overall training progress bar
+                        const overallProgressSection = document.getElementById('training-progress-section');
+                        const overallProgressBar = document.getElementById('overall-progress-bar');
+                        const overallProgressText = document.getElementById('overall-progress-text');
+                        const overallEpoch = document.getElementById('overall-epoch');
+                        
+                        if (overallProgressSection && overallProgressBar && overallProgressText && overallEpoch) {
+                            // Show the progress section when we get progress data
+                            overallProgressSection.style.display = 'block';
+                            
+                            // Update the overall progress bar
+                            overallProgressBar.style.width = `${progressPercent}%`;
+                            overallProgressText.textContent = `${progressPercent.toFixed(1)}% complete`;
+                            overallEpoch.textContent = data.epoch || 0;
+                            
+                            // Calculate overall training progress across all epochs
+                            const totalEpochsElement = document.getElementById('total-epochs');
+                            if (totalEpochsElement) {
+                                const totalEpochs = parseInt(totalEpochsElement.textContent) || 10;
+                                const currentEpoch = parseInt(data.epoch) || 0;
+                                
+                                // Calculate overall progress: (completed epochs + current epoch progress) / total epochs
+                                const completedEpochs = Math.max(0, currentEpoch - 1);
+                                const overallProgress = ((completedEpochs + (progressPercent / 100)) / totalEpochs) * 100;
+                                
+                                // Update overall progress display
+                                const overallProgressText = document.getElementById('overall-progress-text');
+                                if (overallProgressText) {
+                                    overallProgressText.textContent = `Overall: ${overallProgress.toFixed(1)}% complete`;
+                                }
+                            }
+                        }
                         
                         // Check if training has reached termination (100% progress)
                         if (progressPercent === 100) {
@@ -2126,65 +2293,9 @@ class GANDashboard:
                     console.log('📝 Log update:', data);
                     
                     if (data.type === 'log_entry') {
-                        // Get or create log container
-                        let logContainer = document.getElementById('training-logs-container');
-                        if (!logContainer) {
-                            // This shouldn't happen now since we create it by default, but just in case
-                            console.error('Log container not found, creating dynamically');
-                            const logsSection = document.createElement('div');
-                            logsSection.className = 'mt-8 bg-white rounded-lg shadow-md p-6';
-                            logsSection.innerHTML = `
-                                <h3 class="text-lg font-semibold text-gray-700 mb-4">📝 Training Logs</h3>
-                                <div id="training-logs-container" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm h-64 overflow-y-auto">
-                                    <!-- Log entries will be added here -->
-                                </div>
-                            `;
-                            
-                            // Insert after training charts
-                            const trainingCharts = document.querySelector('.grid.grid-cols-1.lg\\:grid-cols-2.gap-6');
-                            trainingCharts.parentNode.insertBefore(logsSection, trainingCharts.nextSibling);
-                            
-                            logContainer = document.getElementById('training-logs-container');
-                        }
+
                         
-                        // Clear the placeholder message if it exists
-                        const placeholder = logContainer.querySelector('.text-gray-500.text-center');
-                        if (placeholder) {
-                            placeholder.remove();
-                        }
-                        
-                        // Add new log entry
-                        const logEntry = document.createElement('div');
-                        logEntry.className = 'mb-1';
-                        
-                        const timestamp = new Date(data.timestamp).toLocaleTimeString();
-                        const source = data.data.source || 'training';
-                        const message = data.data.message || '';
-                        
-                        // Color code based on source
-                        let sourceColor = 'text-blue-400';
-                        if (source === 'training_error') {
-                            sourceColor = 'text-red-400';
-                        } else if (source === 'training_progress') {
-                            sourceColor = 'text-yellow-400';
-                        }
-                        
-                        logEntry.innerHTML = `
-                            <span class="text-gray-400">[${timestamp}]</span>
-                            <span class="${sourceColor}">[${source}]</span>
-                            <span class="text-green-400">${message}</span>
-                        `;
-                        
-                        logContainer.appendChild(logEntry);
-                        
-                        // Auto-scroll to bottom
-                        logContainer.scrollTop = logContainer.scrollHeight;
-                        
-                        // Limit log entries to prevent memory issues
-                        const maxEntries = 1000;
-                        if (logContainer.children.length > maxEntries) {
-                            logContainer.removeChild(logContainer.firstChild);
-                        }
+
                     }
                 }
                 
@@ -2226,7 +2337,7 @@ class GANDashboard:
                     console.log('🚀 Page loaded, setting up SSE channels');
                     connectTrainingChannel();
                     connectProgressChannel();
-                    connectLogChannel();
+                    // connectLogChannel(); // DISABLED: Causing SSE interference
                     console.log('🔍 Window load: Initializing data source selection...');
                     initializeDataSourceSelection();
                 });
@@ -2249,7 +2360,7 @@ class GANDashboard:
                     }
                 });
                 
-                // Monitor connection health
+                // Monitor connection health (reduced frequency to avoid interference)
                 setInterval(() => {
                     if (trainingEventSource && trainingEventSource.readyState === EventSource.CLOSED) {
                         console.log('🔄 Training channel appears closed, reconnecting...');
@@ -2259,7 +2370,7 @@ class GANDashboard:
                         console.log('🔄 Progress channel appears closed, reconnecting...');
                         connectProgressChannel();
                     }
-                }, 10000); // Check every 10 seconds
+                }, 30000); // Check every 30 seconds (reduced from 10s to avoid interference)
                 
                 // Button event listeners
                 document.getElementById('start-training').addEventListener('click', async () => {
@@ -2269,12 +2380,24 @@ class GANDashboard:
                     }
                     
                     try {
+                        // Get the epochs value from the input field
+                        const epochsInput = document.getElementById('epochs-input');
+                        let epochs = epochsInput ? parseInt(epochsInput.value) || 5 : 5;
+                        
+                        // Validate epochs value
+                        if (epochs < 1) epochs = 1;
+                        if (epochs > 1000) epochs = 1000;
+                        
+                        // Update the input field with the validated value
+                        if (epochsInput) epochsInput.value = epochs;
+                        
                         const response = await fetch('/api/start_training', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({
                                 config: 'config/gan_config.yaml',
-                                data_source: selectedDataSource
+                                data_source: selectedDataSource,
+                                epochs: epochs
                             })
                         });
                         const result = await response.json();
@@ -2320,16 +2443,7 @@ class GANDashboard:
                                 existingTrainingInfo.remove();
                             }
                             
-                            // Clear any existing training logs
-                            const existingLogs = document.getElementById('training-logs-container');
-                            if (existingLogs) {
-                                existingLogs.innerHTML = `
-                                    <div class="text-gray-500 text-center py-8">
-                                        <div class="text-2xl mb-2">🚀</div>
-                                        <div class="text-sm">Training started - logs will appear here</div>
-                                    </div>
-                                `;
-                            }
+
                             
                             // Reset charts if they exist
                             if (window.lossChart) {
@@ -3390,14 +3504,17 @@ class GANDashboard:
             data = await request.json()
             config_path = data.get('config', 'config/gan_config.yaml')
             data_source = data.get('data_source', 'treasury_orderbook_sample.csv')
+            epochs = data.get('epochs', None)
             
             if self.training_status == "running":
                 return web.json_response({"success": False, "error": "Training already in progress"})
             
-            logger.info(f"Starting GAN training with config: {config_path}, data: {data_source}")
+            logger.info(f"Starting GAN training with config: {config_path}, data: {data_source}, epochs: {epochs}")
             
             # Start real GAN training process
             cmd = [sys.executable, "train_gan_csv.py", "--config", config_path, "--data", data_source]
+            if epochs is not None:
+                cmd.extend(["--epochs", str(epochs)])
             self.training_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -4272,14 +4389,36 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive with simple heartbeat
-            while True:
-                try:
-                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
-                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
-                except Exception as e:
-                    logger.debug(f"Training client {id(response)} disconnected: {e}")
-                    break
+            # Keep connection alive - wait for disconnection using proper SSE pattern
+            try:
+                # Instead of polling, create a future that completes when cancelled
+                # This is the proper asyncio pattern for long-running tasks
+                disconnection_event = asyncio.Event()
+                
+                # Create a task to wait for disconnection
+                async def wait_for_disconnection():
+                    try:
+                        # Try to write a keep-alive message to detect disconnection
+                        while True:
+                            await asyncio.sleep(30)  # Check every 30 seconds
+                            await response.write(b": keep-alive\n\n")
+                    except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                        disconnection_event.set()
+                
+                # Start the disconnection monitor task
+                monitor_task = asyncio.create_task(wait_for_disconnection())
+                
+                # Wait for either cancellation or disconnection
+                await disconnection_event.wait()
+                
+                # Clean up the monitor task
+                if not monitor_task.done():
+                    monitor_task.cancel()
+                    
+            except (asyncio.CancelledError, ConnectionResetError):
+                logger.debug(f"Training client {id(response)} connection cancelled")
+            except Exception as e:
+                logger.debug(f"Training client {id(response)} disconnected: {e}")
                 
         except Exception as e:
             logger.error(f"❌ Error with training client {id(response)}: {e}")
@@ -4325,14 +4464,36 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive with simple heartbeat
-            while True:
-                try:
-                    await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
-                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
-                except Exception as e:
-                    logger.debug(f"Progress client {id(response)} disconnected: {e}")
-                    break
+            # Keep connection alive - wait for disconnection using proper SSE pattern
+            try:
+                # Instead of polling, create a future that completes when cancelled
+                # This is the proper asyncio pattern for long-running tasks
+                disconnection_event = asyncio.Event()
+                
+                # Create a task to wait for disconnection
+                async def wait_for_disconnection():
+                    try:
+                        # Try to write a keep-alive message to detect disconnection
+                        while True:
+                            await asyncio.sleep(30)  # Check every 30 seconds
+                            await response.write(b": keep-alive\n\n")
+                    except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                        disconnection_event.set()
+                
+                # Start the disconnection monitor task
+                monitor_task = asyncio.create_task(wait_for_disconnection())
+                
+                # Wait for either cancellation or disconnection
+                await disconnection_event.wait()
+                
+                # Clean up the monitor task
+                if not monitor_task.done():
+                    monitor_task.cancel()
+                    
+            except (asyncio.CancelledError, ConnectionResetError):
+                logger.debug(f"Progress client {id(response)} connection cancelled")
+            except Exception as e:
+                logger.debug(f"Progress client {id(response)} disconnected: {e}")
                 
         except Exception as e:
             logger.error(f"❌ Error with progress client {id(response)}: {e}")
@@ -4377,19 +4538,36 @@ class GANDashboard:
                     await response.write(f"data: {json.dumps(data)}\n\n".encode())
                     await asyncio.sleep(0.1)  # Small delay between historical data
             
-            # Keep connection alive and monitor for disconnection with more frequent checks
-            while True:
-                try:
-                    # Check if response is still healthy before sending heartbeat
-                    if self.is_client_healthy(response):
-                        await response.write(f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n".encode())
-                        await asyncio.sleep(15)  # Reduced from 30 to 15 seconds for faster disconnection detection
-                    else:
-                        logger.debug(f"Log client {id(response)} is unhealthy, breaking connection")
-                        break
-                except Exception as e:
-                    logger.error(f"Error sending heartbeat to log client {id(response)}: {e}")
-                    break
+            # Keep connection alive - wait for disconnection using proper SSE pattern
+            try:
+                # Instead of polling, create a future that completes when cancelled
+                # This is the proper asyncio pattern for long-running tasks
+                disconnection_event = asyncio.Event()
+                
+                # Create a task to wait for disconnection
+                async def wait_for_disconnection():
+                    try:
+                        # Try to write a keep-alive message to detect disconnection
+                        while True:
+                            await asyncio.sleep(30)  # Check every 30 seconds
+                            await response.write(b": keep-alive\n\n")
+                    except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                        disconnection_event.set()
+                
+                # Start the disconnection monitor task
+                monitor_task = asyncio.create_task(wait_for_disconnection())
+                
+                # Wait for either cancellation or disconnection
+                await disconnection_event.wait()
+                
+                # Clean up the monitor task
+                if not monitor_task.done():
+                    monitor_task.cancel()
+                    
+            except (asyncio.CancelledError, ConnectionResetError):
+                logger.debug(f"Log client {id(response)} connection cancelled")
+            except Exception as e:
+                logger.debug(f"Log client {id(response)} disconnected: {e}")
                     
         except asyncio.CancelledError:
             pass
@@ -4493,62 +4671,38 @@ class GANDashboard:
         site = web.TCPSite(self.runner, self.host, self.port)
         await site.start()
         
-        # Start the cleanup task
+        # Register with port manager for automatic discovery
+        dashboard_url = register_dashboard(self.port)
+        
+        # Start the connection monitoring task (simplified without heartbeat checking)
         asyncio.create_task(self.cleanup_stale_connections())
         
-        logger.info(f"GAN Dashboard started at http://{self.host}:{self.port}")
+        logger.info(f"GAN Dashboard started at {dashboard_url}")
+        logger.info(f"🔧 Port configuration automatically updated for all components")
     
-    def is_client_healthy(self, client):
-        """Check if a client connection is still healthy."""
-        try:
-            return (client.transport is not None and 
-                   not client.transport.is_closing())
-        except Exception:
-            return False
+
     
     async def cleanup_stale_connections(self):
-        """Periodically clean up stale SSE connections."""
+        """Simplified connection cleanup without heartbeat checking."""
         while True:
             try:
-                await asyncio.sleep(60)  # Run cleanup every minute
+                await asyncio.sleep(600)  # Run cleanup every 10 minutes
                 
-                # Clean up training clients
-                stale_training = set()
-                for client in self.training_clients:
-                    if not self.is_client_healthy(client):
-                        stale_training.add(client)
-                
-                if stale_training:
-                    self.training_clients -= stale_training
-                    logger.info(f"🧹 Cleaned up {len(stale_training)} stale training connections")
-                
-                # Clean up progress clients
-                stale_progress = set()
-                for client in self.progress_clients:
-                    if not self.is_client_healthy(client):
-                        stale_progress.add(client)
-                
-                if stale_progress:
-                    self.progress_clients -= stale_progress
-                    logger.info(f"🧹 Cleaned up {len(stale_progress)} stale progress connections")
-                
-                # Clean up log clients
-                stale_logs = set()
-                for client in self.log_clients:
-                    if not self.is_client_healthy(client):
-                        stale_logs.add(client)
-                
-                if stale_logs:
-                    self.log_clients -= stale_logs
-                    logger.info(f"🧹 Cleaned up {len(stale_logs)} stale log connections")
+                # Basic cleanup - connections will be automatically removed when they disconnect
+                logger.debug(f"📊 Current connections - Training: {len(self.training_clients)}, Progress: {len(self.progress_clients)}, Logs: {len(self.log_clients)}")
                     
             except Exception as e:
-                logger.error(f"Error during connection cleanup: {e}")
+                logger.error(f"Error during connection monitoring: {e}")
     
     async def stop(self):
         """Stop the dashboard server."""
+        # Cleanup port manager configuration
+        cleanup_dashboard()
+        
         if self.runner:
             await self.runner.cleanup()
+            
+        logger.info("GAN Dashboard stopped and port configuration cleaned up")
     
     async def debug_sse_connection(self, request):
         """Debug page for testing SSE connections."""
@@ -4559,6 +4713,36 @@ class GANDashboard:
     async def minimal_sse_test(self, request):
         """Minimal SSE test page."""
         with open('minimal_sse_test.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def test_sse_connection_debug(self, request):
+        """Debug page for testing SSE connections."""
+        with open('test_sse_connection_debug.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def test_main_dashboard_simple(self, request):
+        """Simple test page for main dashboard functionality."""
+        with open('test_main_dashboard_simple.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def test_sse_connection_simple(self, request):
+        """Simple SSE connection test page."""
+        with open('test_sse_connection_simple.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def debug_sse_connections(self, request):
+        """Debug SSE connections page."""
+        with open('debug_sse_connections.html', 'r') as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type='text/html')
+    
+    async def test_sse_simple(self, request):
+        """Simple SSE test page."""
+        with open('test_sse_simple.html', 'r') as f:
             html_content = f.read()
         return web.Response(text=html_content, content_type='text/html')
 

@@ -444,6 +444,8 @@ def main():
                        help='Skip training and only evaluate existing model')
     parser.add_argument('--checkpoint', type=str, default=None,
                        help='Path to checkpoint file to load')
+    parser.add_argument('--epochs', type=int, default=None,
+                       help='Number of training epochs (overrides config file)')
     
     args = parser.parse_args()
     
@@ -461,6 +463,13 @@ def main():
             config['data_source'] = {}
         config['data_source']['csv_file'] = args.data
         logger.info(f"Using data source: {args.data}")
+    
+    # Update config with epochs if provided
+    if args.epochs is not None:
+        if 'training' not in config:
+            config['training'] = {}
+        config['training']['epochs'] = args.epochs
+        logger.info(f"Using epochs from command line: {args.epochs}")
     
     # Setup environment
     device = setup_environment()

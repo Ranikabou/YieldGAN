@@ -92,6 +92,9 @@ class GANDashboard:
         self.progress_clients = set()
         self.log_clients = set()
         
+        # Pending messages for when SSE broadcast fails
+        self.pending_completion_message = None
+        
         # Set up routes
         self.setup_routes()
         
@@ -1484,7 +1487,7 @@ class GANDashboard:
                                 <i data-feather="clock" class="w-5 h-5"></i>
                             </div>
                             <div class="ml-3">
-                                <h3 class="text-sm font-semibold text-gray-700">📊 Training Progress</h3>
+                                <h3 class="text-sm font-semibold text-gray-700">Training Progress</h3>
                                 <p id="training-progress-display" class="text-xl font-bold text-purple-600">0.0%</p>
                                 <p id="training-epoch-display" class="text-sm text-gray-600">Epoch -</p>
                             </div>
@@ -2043,46 +2046,11 @@ class GANDashboard:
                         }
                         
                     } else if (data.type === 'training_update') {
-                        // Check if this is the final epoch completion
-                        if (data.data.epoch === data.data.total_epochs) {
-                            console.log('🎯 Final epoch completed - automatically adjusting button states');
-                            
-                            // Automatically adjust button states for training termination
-                            const startTrainingBtn = document.getElementById('start-training');
-                            const stopTrainingBtn = document.getElementById('stop-training');
-                            
-                            if (startTrainingBtn && stopTrainingBtn) {
-                                // Re-enable start training button
-                                startTrainingBtn.disabled = false;
-                                startTrainingBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                                
-                                // Disable stop training button
-                                stopTrainingBtn.disabled = true;
-                                stopTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                                
-                                // Update status text to show completion
-                                const statusText = document.getElementById('status-text');
-                                if (statusText) {
-                                    statusText.textContent = 'Completed';
-                                    statusText.className = 'text-xl font-bold text-green-600';
-                                }
-                                
-                                // Hide training status indicator
-                                const trainingStatusIndicator = document.getElementById('training-status-indicator');
-                                if (trainingStatusIndicator) {
-                                    trainingStatusIndicator.classList.add('hidden');
-                                }
-                                
-                                // Hide overall training progress section
-                                const overallProgressSection = document.getElementById('training-progress-section');
-                                if (overallProgressSection) {
-                                    overallProgressSection.style.display = 'none';
-                                }
-                                
-                                // Show completion notification
-                                showCompletionNotification('Training completed successfully!', 'success');
-                            }
-                        }
+                        // Log training update but don't assume completion based on epoch number alone
+                        console.log('📊 Training update received:', data.data);
+                        
+                        // Note: We should only show completion when we receive a proper 'training_complete' event
+                        // Do not assume completion based on epoch numbers here
                         
                     } else if (data.type === 'training_complete') {
                         console.log('✅ Training completed:', data.data);
@@ -2165,39 +2133,11 @@ class GANDashboard:
                             trainingEpochElement.textContent = `Epoch ${data.epoch || 0}`;
                         }
                         
-                        // Check if training has reached termination (100% progress)
+                        // Only show completion when training is actually complete (100% AND all epochs finished)
+                        // We should wait for the proper 'training_complete' event rather than assuming completion from progress
                         if (progressPercent === 100) {
-                            console.log('🎯 Training progress reached 100% - automatically adjusting button states');
-                            
-                            // Automatically adjust button states for training termination
-                            const startTrainingBtn = document.getElementById('start-training');
-                            const stopTrainingBtn = document.getElementById('stop-training');
-                            
-                            if (startTrainingBtn && stopTrainingBtn) {
-                                // Re-enable start training button
-                                startTrainingBtn.disabled = false;
-                                startTrainingBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                                
-                                // Disable stop training button
-                                stopTrainingBtn.disabled = true;
-                                stopTrainingBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                                
-                                // Update status text to show completion
-                                const statusText = document.getElementById('status-text');
-                                if (statusText) {
-                                    statusText.textContent = 'Completed';
-                                    statusText.className = 'text-xl font-bold text-green-600';
-                                }
-                                
-                                // Hide training status indicator
-                                const trainingStatusIndicator = document.getElementById('training-status-indicator');
-                                if (trainingStatusIndicator) {
-                                    trainingStatusIndicator.classList.add('hidden');
-                                }
-                                
-                                // Show completion notification
-                                showCompletionNotification('Training completed successfully!', 'success');
-                            }
+                            console.log('🎯 Training progress reached 100% - training should complete soon');
+                            // Note: We wait for the official 'training_complete' event to update UI state
                         }
                     }
                 }
@@ -3526,16 +3466,46 @@ class GANDashboard:
                     }
                     
                     try:
+                        # Try multiple approaches to broadcast the completion message
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            asyncio.run_coroutine_threadsafe(
+                            # Schedule the broadcast on the event loop
+                            future = asyncio.run_coroutine_threadsafe(
                                 self.broadcast_training_update(completion_msg), 
                                 loop
                             )
+                            # Wait a bit for the broadcast to complete
+                            try:
+                                future.result(timeout=2.0)
+                                logger.info("✅ Training completion broadcasted successfully via SSE")
+                            except Exception as broadcast_error:
+                                logger.warning(f"SSE broadcast failed: {broadcast_error}, using fallback")
+                                raise RuntimeError("SSE broadcast failed")
+                        else:
+                            raise RuntimeError("Event loop not running")
                     except RuntimeError:
+                        # Fallback: Store the message to be sent when clients reconnect
+                        logger.warning("⚠️ SSE broadcasting failed, storing completion message for later delivery")
+                        self.pending_completion_message = completion_msg
                         logger.info(f"Dashboard update (completion): {completion_msg}")
+                        
+                        # Try direct broadcast to existing clients as fallback
+                        try:
+                            import json
+                            message = f"data: {json.dumps(completion_msg)}\n\n"
+                            for client in list(self.training_clients):
+                                try:
+                                    client.write(message.encode())
+                                    logger.info("✅ Direct completion message sent to SSE client")
+                                except Exception as client_error:
+                                    logger.warning(f"Failed to send direct message to client: {client_error}")
+                                    self.training_clients.discard(client)
+                        except Exception as fallback_error:
+                            logger.error(f"Fallback direct broadcast also failed: {fallback_error}")
                     except Exception as e:
                         logger.error(f"Error broadcasting completion: {e}")
+                        # Store as pending message
+                        self.pending_completion_message = completion_msg
             
             # Start monitoring in a separate thread
             monitor_thread = threading.Thread(target=monitor_output, daemon=True)
@@ -4296,6 +4266,13 @@ class GANDashboard:
                 'timestamp': datetime.now().isoformat()
             }
             await response.write(f"data: {json.dumps(status_msg)}\n\n".encode())
+            
+            # Send pending completion message if available
+            if self.pending_completion_message:
+                logger.info("📤 Sending pending completion message to new client")
+                await response.write(f"data: {json.dumps(self.pending_completion_message)}\n\n".encode())
+                # Clear the pending message after sending
+                self.pending_completion_message = None
             
             # Send historical training data
             historical_data = self.load_historical_logs()

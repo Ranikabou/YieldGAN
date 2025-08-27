@@ -10,18 +10,19 @@ from scipy import stats
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from typing import Dict, Any
 import logging
+from scipy.spatial import distance  # Correct import for jensenshannon
 
 logger = logging.getLogger(__name__)
 
 def evaluate_treasury_gan(real_data: np.ndarray, synthetic_data: np.ndarray, 
-                         save_plots: bool = True) -> Dict[str, Any]:
+                        save_plots: bool = False) -> Dict[str, Any]:
     """
-    Comprehensive evaluation of Treasury GAN performance.
+    Comprehensive evaluation of treasury curve GAN performance.
     
     Args:
-        real_data: Real treasury data
-        synthetic_data: Generated synthetic data
-        save_plots: Whether to save evaluation plots
+        real_data: Real treasury data of shape (n_samples, sequence_length, n_features)
+        synthetic_data: Generated synthetic data of shape (n_samples, sequence_length, n_features) 
+        save_plots: Whether to generate and save evaluation plots
         
     Returns:
         Dictionary containing evaluation metrics
@@ -31,8 +32,21 @@ def evaluate_treasury_gan(real_data: np.ndarray, synthetic_data: np.ndarray,
     # Ensure data has the same shape
     if real_data.shape != synthetic_data.shape:
         logger.warning(f"Data shape mismatch: real {real_data.shape}, synthetic {synthetic_data.shape}")
-        # Reshape synthetic data to match real data
-        synthetic_data = synthetic_data[:real_data.shape[0]]
+        
+        # Handle different sequence lengths by truncating to the minimum length
+        min_batch_size = min(real_data.shape[0], synthetic_data.shape[0])
+        min_seq_length = min(real_data.shape[1], synthetic_data.shape[1])
+        
+        # Ensure feature dimensions match
+        if real_data.shape[2] != synthetic_data.shape[2]:
+            logger.error(f"Feature dimension mismatch: real {real_data.shape[2]}, synthetic {synthetic_data.shape[2]}")
+            raise ValueError("Feature dimensions must match between real and synthetic data")
+        
+        # Truncate both datasets to common dimensions
+        real_data = real_data[:min_batch_size, :min_seq_length, :]
+        synthetic_data = synthetic_data[:min_batch_size, :min_seq_length, :]
+        
+        logger.info(f"Adjusted data shapes to: real {real_data.shape}, synthetic {synthetic_data.shape}")
     
     results = {}
     
@@ -59,24 +73,39 @@ def evaluate_treasury_gan(real_data: np.ndarray, synthetic_data: np.ndarray,
     return results
 
 def calculate_basic_statistics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
-    """Calculate basic statistical measures."""
+    """Calculate basic statistical measures for 3D time series data."""
     stats_dict = {}
     
-    # Mean and standard deviation
-    stats_dict['real_mean'] = np.mean(real_data, axis=0).tolist()
-    stats_dict['real_std'] = np.std(real_data, axis=0).tolist()
-    stats_dict['synthetic_mean'] = np.mean(synthetic_data, axis=0).tolist()
-    stats_dict['synthetic_std'] = np.std(synthetic_data, axis=0).tolist()
+    # For 3D data (batch_size, sequence_length, features), compute statistics across batch and time dimensions
+    # This gives us statistics for each feature
     
-    # Min and max values
-    stats_dict['real_min'] = np.min(real_data, axis=0).tolist()
-    stats_dict['real_max'] = np.max(real_data, axis=0).tolist()
-    stats_dict['synthetic_min'] = np.min(synthetic_data, axis=0).tolist()
-    stats_dict['synthetic_max'] = np.max(synthetic_data, axis=0).tolist()
+    # Mean and standard deviation across samples and time (axis=0,1)
+    stats_dict['real_mean'] = np.mean(real_data, axis=(0, 1)).tolist()
+    stats_dict['real_std'] = np.std(real_data, axis=(0, 1)).tolist()
+    stats_dict['synthetic_mean'] = np.mean(synthetic_data, axis=(0, 1)).tolist()
+    stats_dict['synthetic_std'] = np.std(synthetic_data, axis=(0, 1)).tolist()
     
-    # Mean absolute difference
-    mean_diff = np.mean(np.abs(real_data - synthetic_data), axis=0)
+    # Min and max values across samples and time
+    stats_dict['real_min'] = np.min(real_data, axis=(0, 1)).tolist()
+    stats_dict['real_max'] = np.max(real_data, axis=(0, 1)).tolist()
+    stats_dict['synthetic_min'] = np.min(synthetic_data, axis=(0, 1)).tolist()
+    stats_dict['synthetic_max'] = np.max(synthetic_data, axis=(0, 1)).tolist()
+    
+    # Mean absolute difference across samples and time
+    mean_diff = np.mean(np.abs(real_data - synthetic_data), axis=(0, 1))
     stats_dict['mean_absolute_difference'] = mean_diff.tolist()
+    
+    # Also provide some sequence-level statistics
+    # Mean across features for each sample and time step, then statistics of that
+    real_seq_means = np.mean(real_data, axis=2)  # (batch_size, sequence_length)
+    synthetic_seq_means = np.mean(synthetic_data, axis=2)  # (batch_size, sequence_length)
+    
+    stats_dict['sequence_level_stats'] = {
+        'real_sequence_mean': np.mean(real_seq_means).item(),
+        'real_sequence_std': np.std(real_seq_means).item(),
+        'synthetic_sequence_mean': np.mean(synthetic_seq_means).item(),
+        'synthetic_sequence_std': np.std(synthetic_seq_means).item()
+    }
     
     return stats_dict
 
@@ -84,53 +113,66 @@ def calculate_distribution_metrics(real_data: np.ndarray, synthetic_data: np.nda
     """Calculate distribution similarity metrics."""
     metrics = {}
     
+    # For 3D data (batch_size, sequence_length, features), we need to flatten for distribution comparisons
+    # We'll compute metrics for each feature across all samples and time steps
+    n_features = real_data.shape[-1]
+    
     # Kolmogorov-Smirnov test for each feature
     ks_stats = []
     ks_pvalues = []
     
-    for i in range(real_data.shape[1]):
-        ks_stat, p_value = stats.ks_2samp(real_data[:, i], synthetic_data[:, i])
-        ks_stats.append(ks_stat)
-        ks_pvalues.append(p_value)
-    
-    metrics['ks_statistics'] = ks_stats
-    metrics['ks_pvalues'] = ks_pvalues
-    
     # Wasserstein distance (Earth Mover's Distance)
     wasserstein_distances = []
-    for i in range(real_data.shape[1]):
-        wd = stats.wasserstein_distance(real_data[:, i], synthetic_data[:, i])
-        wasserstein_distances.append(wd)
-    
-    metrics['wasserstein_distances'] = wasserstein_distances
     
     # Jensen-Shannon divergence
     js_divergences = []
-    for i in range(real_data.shape[1]):
+    
+    for feature_idx in range(n_features):
+        # Extract data for this feature across all samples and time steps
+        real_feature_data = real_data[:, :, feature_idx].flatten()
+        synthetic_feature_data = synthetic_data[:, :, feature_idx].flatten()
+        
+        # Kolmogorov-Smirnov test
+        ks_stat, p_value = stats.ks_2samp(real_feature_data, synthetic_feature_data)
+        ks_stats.append(ks_stat)
+        ks_pvalues.append(p_value)
+        
+        # Wasserstein distance
+        wd = stats.wasserstein_distance(real_feature_data, synthetic_feature_data)
+        wasserstein_distances.append(wd)
+        
+        # Jensen-Shannon divergence
         # Create histograms for comparison
-        real_hist, _ = np.histogram(real_data[:, i], bins=50, density=True)
-        syn_hist, _ = np.histogram(synthetic_data[:, i], bins=50, density=True)
+        real_hist, _ = np.histogram(real_feature_data, bins=50, density=True)
+        syn_hist, _ = np.histogram(synthetic_feature_data, bins=50, density=True)
         
         # Normalize histograms
-        real_hist = real_hist / np.sum(real_hist)
-        syn_hist = syn_hist / np.sum(syn_hist)
+        real_hist = real_hist / np.sum(real_hist) if np.sum(real_hist) > 0 else real_hist
+        syn_hist = syn_hist / np.sum(syn_hist) if np.sum(syn_hist) > 0 else syn_hist
         
-        # Calculate JS divergence
-        m = 0.5 * (real_hist + syn_hist)
-        js_div = 0.5 * (stats.entropy(real_hist, m) + stats.entropy(syn_hist, m))
+        # Calculate Jensen-Shannon divergence
+        js_div = distance.jensenshannon(real_hist, syn_hist)
         js_divergences.append(js_div)
     
-    metrics['jensen_shannon_divergences'] = js_divergences
+    metrics['ks_statistics'] = ks_stats
+    metrics['ks_pvalues'] = ks_pvalues
+    metrics['wasserstein_distances'] = wasserstein_distances
+    metrics['js_divergences'] = js_divergences
     
     return metrics
 
 def calculate_correlation_metrics(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, Any]:
-    """Calculate correlation-based metrics."""
+    """Calculate correlation-based metrics for 3D time series data."""
     metrics = {}
     
+    # For 3D data, we need to flatten to 2D for correlation calculation
+    # Reshape (batch_size, sequence_length, features) to (batch_size * sequence_length, features)
+    real_reshaped = real_data.reshape(-1, real_data.shape[-1])
+    synthetic_reshaped = synthetic_data.reshape(-1, synthetic_data.shape[-1])
+    
     # Feature correlation matrices
-    real_corr = np.corrcoef(real_data.T)
-    synthetic_corr = np.corrcoef(synthetic_data.T)
+    real_corr = np.corrcoef(real_reshaped.T)
+    synthetic_corr = np.corrcoef(synthetic_reshaped.T)
     
     metrics['real_correlation_matrix'] = real_corr.tolist()
     metrics['synthetic_correlation_matrix'] = synthetic_corr.tolist()

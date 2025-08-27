@@ -299,7 +299,7 @@ def custom_train_with_dashboard(trainer, train_loader, val_loader, dashboard_sen
             nonlocal last_sent_progress
             # Only send if progress has actually changed
             if progress_percent != last_sent_progress:
-                dashboard_sender.send_progress_data(epoch, progress_percent)
+                dashboard_sender.send_progress_data(epoch + 1, progress_percent)  # Use 1-indexed epoch for display
                 last_sent_progress = progress_percent
         
         # Train epoch with progress callback
@@ -414,19 +414,27 @@ def evaluate_model(trainer: GANTrainer, test_loader, scaler, config: dict):
     
     # Save evaluation results
     import json
+    
+    def convert_numpy_types(obj):
+        """Convert numpy types to native Python types for JSON serialization."""
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.floating, np.complexfloating)):
+            return float(obj)
+        elif isinstance(obj, (np.integer)):
+            return int(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, dict):
+            return {key: convert_numpy_types(value) for key, value in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [convert_numpy_types(item) for item in obj]
+        else:
+            return obj
+    
     with open('results/evaluation_results.json', 'w') as f:
-        # Convert numpy arrays to lists for JSON serialization
-        json_results = {}
-        for key, value in evaluation_results.items():
-            if isinstance(value, dict):
-                json_results[key] = {}
-                for sub_key, sub_value in value.items():
-                    if isinstance(sub_value, np.ndarray):
-                        json_results[key][sub_key] = sub_value.tolist()
-                    else:
-                        json_results[key][sub_key] = sub_value
-            else:
-                json_results[key] = value
+        # Convert all numpy types to native Python types for JSON serialization
+        json_results = convert_numpy_types(evaluation_results)
         json.dump(json_results, f, indent=2)
     
     logger.info("Evaluation completed and results saved to results/evaluation_results.json")
@@ -484,7 +492,15 @@ def main():
     dashboard_sender = DashboardChannelSender(dashboard_url)
     
     # Collect CSV data
-    sequence_length = args.sequence_length or config.get('data_processing', {}).get('sequence_length', 100)
+    # Use config file sequence length if available, otherwise use command line argument
+    config_sequence_length = config.get('data_processing', {}).get('sequence_length', None)
+    if config_sequence_length is not None:
+        sequence_length = config_sequence_length
+        logger.info(f"Using sequence length from config file: {sequence_length}")
+    else:
+        sequence_length = args.sequence_length
+        logger.info(f"Using sequence length from command line: {sequence_length}")
+    
     sequences, targets, scaler = collect_csv_data(config, sequence_length)
     
     if args.skip_training and args.checkpoint:

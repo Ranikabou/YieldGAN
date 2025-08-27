@@ -119,16 +119,16 @@ def simulate_training(dashboard_sender, epochs=10):
         logger.info(f"Starting epoch {epoch + 1}/{epochs}")
         
         # Send progress start
-        dashboard_sender.send_progress_data(epoch, 0)
+        dashboard_sender.send_progress_data(epoch + 1, 0)  # Use 1-indexed epoch for display
         time.sleep(0.1)
         
         # Simulate training progress with granular updates
         for progress in range(1, 100):
-            dashboard_sender.send_progress_data(epoch, progress)
+            dashboard_sender.send_progress_data(epoch + 1, progress)
             time.sleep(0.02)  # Small delay to simulate realistic progress
         
-        # Simulate training completion
-        dashboard_sender.send_progress_data(epoch, 100)
+        # Simulate training completion for this epoch
+        dashboard_sender.send_progress_data(epoch + 1, 100)
         time.sleep(0.1)
         
         # Generate simulated training metrics

@@ -1,45 +1,47 @@
-# GAN Configuration for Treasury Curve Training
-
-# Model configuration
-model:
-  gan_type: "standard"  # "standard" or "wgan"
-  generator:
-    latent_dim: 100
-    hidden_dims: [256, 512, 256, 128]
-    dropout: 0.3
-  discriminator:
-    hidden_dims: [128, 256, 128, 64]
-    dropout: 0.3
-
-# Data configuration
+dashboard:
+  auto_detected: true
+  auto_detection: true
+  port: 8085
+  url: http://localhost:8085
 data_processing:
-  sequence_length: 100
-  num_features: 21  # Updated to match actual CSV data: 1 timestamp + 5 levels × 4 fields (bid_price, bid_size, ask_price, ask_size)
-  batch_size: 32
+  batch_size: 16
+  num_features: 21
+  sequence_length: 50
+  test_split: 0.15
   train_split: 0.7
   validation_split: 0.15
-  test_split: 0.15
-
-# Training configuration
+data_source:
+  csv_directory: data/csv
+  csv_file: treasury_orderbook_sample.csv
+instruments:
+- 2Y
+- 5Y
+- 10Y
+- 30Y
+model:
+  discriminator:
+    dropout: 0.3
+    hidden_dims:
+    - 64
+    - 128
+    - 64
+    - 32
+  gan_type: standard
+  generator:
+    dropout: 0.3
+    hidden_dims:
+    - 128
+    - 256
+    - 128
+    - 64
+    latent_dim: 64
 training:
-  epochs: 10  # Reduced for testing
-  batch_size: 32
-  learning_rate_generator: 0.0002
-  learning_rate_discriminator: 0.0002
+  batch_size: 16
   beta1: 0.5
   beta2: 0.999
+  critic_iterations: 5
+  epochs: 5
+  lambda_gp: 10.0
+  learning_rate_discriminator: 0.0002
+  learning_rate_generator: 0.0002
   patience: 50
-  critic_iterations: 5  # For WGAN
-  lambda_gp: 10.0  # Gradient penalty weight for WGAN
-
-# Instruments to include
-instruments: ["2Y", "5Y", "10Y", "30Y"]
-
-# Data source configuration
-data_source:
-  csv_file: "treasury_orderbook_sample.csv"
-  csv_directory: "data/csv"
-
-# Dashboard configuration
-dashboard:
-  url: "http://localhost:8081" 

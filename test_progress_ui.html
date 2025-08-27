@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Progress SSE UI Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .progress-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #28a745);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        .log-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .log-container {
+            height: 200px;
+            overflow-y: auto;
+            background: #343a40;
+            color: #28a745;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .test-buttons {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .test-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .test-btn:hover {
+            background: #0056b3;
+        }
+        .test-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Progress SSE UI Test</h1>
+        <p>This page tests the real-time progress updates via Server-Sent Events (SSE).</p>
+        
+        <div class="status disconnected" id="progress-status">Progress Channel: Disconnected</div>
+        <div class="status disconnected" id="training-status">Training Channel: Disconnected</div>
+        
+        <div class="progress-section">
+            <h3>📊 Training Progress</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-bar"></div>
+            </div>
+            <div class="progress-info">
+                <span id="progress-text">0%</span>
+                <span id="epoch-info">Epoch 0</span>
+            </div>
+        </div>
+        
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-value" id="current-epoch">-</div>
+                <div class="metric-label">Current Epoch</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="epoch-progress">0%</div>
+                <div class="metric-label">Epoch Progress</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-epochs">10</div>
+                <div class="metric-label">Total Epochs</div>
+            </div>
+        </div>
+        
+        <div class="test-buttons">
+            <button class="test-btn" onclick="simulateProgress()">📈 Simulate Progress</button>
+            <button class="test-btn" onclick="clearLogs()">🧹 Clear Logs</button>
+            <button class="test-btn" onclick="testSSE()">🔌 Test SSE</button>
+        </div>
+        
+        <div class="log-section">
+            <h3>📝 Event Log</h3>
+            <div class="log-container" id="event-log"></div>
+        </div>
+    </div>
+
+    <script>
+        let progressEventSource = null;
+        let trainingEventSource = null;
+        let messageCount = 0;
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('event-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            
+            if (type === 'error') {
+                logEntry.style.color = '#dc3545';
+            } else if (type === 'success') {
+                logEntry.style.color = '#28a745';
+            } else if (type === 'warning') {
+                logEntry.style.color = '#ffc107';
+            }
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Limit log entries
+            if (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...', 'info');
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('✅ Progress channel connected', 'success');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    messageCount++;
+                    log(`📊 Progress message #${messageCount}: ${JSON.stringify(data)}`, 'info');
+                    
+                    if (data.type === 'progress') {
+                        updateProgressUI(data);
+                    } else if (data.type === 'connection') {
+                        log(`📊 Progress channel info: ${data.message}`, 'info');
+                    } else if (data.type === 'heartbeat') {
+                        log(`📊 Progress heartbeat: ${data.timestamp}`, 'info');
+                    }
+                } catch (error) {
+                    log(`❌ Error parsing progress data: ${error}`, 'error');
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`❌ Progress channel error: ${error}`, 'error');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...', 'info');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('✅ Training channel connected', 'success');
+                document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    messageCount++;
+                    log(`🎯 Training message #${messageCount}: ${JSON.stringify(data)}`, 'info');
+                    
+                    if (data.type === 'training_update') {
+                        updateTrainingUI(data);
+                    } else if (data.type === 'connection') {
+                        log(`🎯 Training channel info: ${data.message}`, 'info');
+                    }
+                } catch (error) {
+                    log(`❌ Error parsing training data: ${error}`, 'error');
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`❌ Training channel error: ${error}`, 'error');
+                document.getElementById('training-status').textContent = 'Training Channel: Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+
+        function updateProgressUI(data) {
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            const epochInfo = document.getElementById('epoch-info');
+            const currentEpoch = document.getElementById('current-epoch');
+            const epochProgress = document.getElementById('epoch-progress');
+            
+            if (progressBar && progressText && epochInfo) {
+                const progressPercent = data.progress_percent || 0;
+                progressBar.style.width = `${progressPercent}%`;
+                progressText.textContent = `${progressPercent.toFixed(1)}%`;
+                epochInfo.textContent = `Epoch ${data.epoch || 0}`;
+                
+                if (currentEpoch) currentEpoch.textContent = data.epoch || 0;
+                if (epochProgress) epochProgress.textContent = `${progressPercent.toFixed(1)}%`;
+                
+                log(`📊 Updated progress: Epoch ${data.epoch} - ${progressPercent}%`, 'success');
+            }
+        }
+
+        function updateTrainingUI(data) {
+            log(`🎯 Training update: ${JSON.stringify(data.data)}`, 'info');
+            
+            // Update metrics if available
+            if (data.data.epoch) {
+                const currentEpoch = document.getElementById('current-epoch');
+                if (currentEpoch) currentEpoch.textContent = data.data.epoch;
+            }
+            
+            if (data.data.total_epochs) {
+                const totalEpochs = document.getElementById('total-epochs');
+                if (totalEpochs) totalEpochs.textContent = data.data.total_epochs;
+            }
+        }
+
+        function simulateProgress() {
+            log('🧪 Simulating progress updates...', 'info');
+            
+            // Simulate progress updates
+            const progressSteps = [25, 50, 75, 100];
+            let currentStep = 0;
+            
+            const interval = setInterval(() => {
+                if (currentStep < progressSteps.length) {
+                    const progress = progressSteps[currentStep];
+                    const simulatedData = {
+                        type: 'progress',
+                        epoch: 1,
+                        progress_percent: progress,
+                        timestamp: new Date().toISOString(),
+                        message: `Simulated progress: ${progress}%`
+                    };
+                    
+                    updateProgressUI(simulatedData);
+                    currentStep++;
+                } else {
+                    clearInterval(interval);
+                    log('✅ Progress simulation completed', 'success');
+                }
+            }, 1000);
+        }
+
+        function clearLogs() {
+            const logContainer = document.getElementById('event-log');
+            logContainer.innerHTML = '';
+            log('🧹 Logs cleared', 'info');
+        }
+
+        function testSSE() {
+            log('🔌 Testing SSE connections...', 'info');
+            connectProgressChannel();
+            connectTrainingChannel();
+        }
+
+        // Connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, setting up SSE channels', 'info');
+            connectProgressChannel();
+            connectTrainingChannel();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+        });
+    </script>
+</body>
+</html> 

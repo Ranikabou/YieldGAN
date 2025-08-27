@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Main Dashboard Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .metric { padding: 15px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
+        .metric-value { font-size: 24px; font-weight: bold; }
+        .gen-loss { color: #28a745; }
+        .disc-loss { color: #dc3545; }
+        .epoch { color: #6f42c1; }
+        .progress { color: #007bff; }
+        .log { background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px; height: 400px; overflow-y: auto; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Main Dashboard Test</h1>
+    
+    <div>
+        <button onclick="testTrainingData()">Send Test Training Data</button>
+        <button onclick="testProgressData()">Send Test Progress Data</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <h2>Training Metrics</h2>
+    <div class="metric">
+        <strong>Generator Loss:</strong>
+        <span id="gen-loss" class="metric-value gen-loss">-</span>
+    </div>
+    
+    <div class="metric">
+        <strong>Discriminator Loss:</strong>
+        <span id="disc-loss" class="metric-value disc-loss">-</span>
+    </div>
+    
+    <div class="metric">
+        <strong>Current Epoch:</strong>
+        <span id="current-epoch" class="metric-value epoch">-</span>
+    </div>
+    
+    <div class="metric">
+        <strong>Progress:</strong>
+        <span id="progress-percent" class="metric-value progress">0%</span>
+    </div>
+    
+    <h2>Connection Status</h2>
+    <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+    <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+    
+    <h2>Debug Log</h2>
+    <div id="console-log" class="log"></div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}\n`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('console-log').innerHTML = '';
+        }
+        
+        function updateDashboard(data) {
+            log('🎯 Updating dashboard with: ' + JSON.stringify(data));
+            
+            if (data.type === 'training_update') {
+                log('🎯 Processing training update: ' + JSON.stringify(data.data));
+                
+                // Update training metrics
+                const genLossElement = document.getElementById('gen-loss');
+                const discLossElement = document.getElementById('disc-loss');
+                const currentEpochElement = document.getElementById('current-epoch');
+                
+                if (genLossElement) {
+                    genLossElement.textContent = data.data.generator_loss.toFixed(4);
+                    log('✅ Updated generator loss: ' + data.data.generator_loss);
+                } else {
+                    log('❌ gen-loss element not found');
+                }
+                
+                if (discLossElement) {
+                    discLossElement.textContent = data.data.discriminator_loss.toFixed(4);
+                    log('✅ Updated discriminator loss: ' + data.data.discriminator_loss);
+                } else {
+                    log('❌ disc-loss element not found');
+                }
+                
+                if (currentEpochElement) {
+                    currentEpochElement.textContent = data.data.epoch;
+                    log('✅ Updated current epoch: ' + data.data.epoch);
+                } else {
+                    log('❌ current-epoch element not found');
+                }
+            }
+        }
+        
+        function updateProgress(data) {
+            log('📊 Progress update: ' + JSON.stringify(data));
+            
+            if (data.type === 'progress') {
+                const progressElement = document.getElementById('progress-percent');
+                if (progressElement) {
+                    progressElement.textContent = data.progress_percent + '%';
+                    log('✅ Updated progress to ' + data.progress_percent + '%');
+                } else {
+                    log('❌ progress-percent element not found');
+                }
+            }
+        }
+        
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('✅ Training channel connected');
+                document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📨 Training message received: ${event.data}`);
+                    
+                    if (data.type === 'training_update') {
+                        updateDashboard(data);
+                    } else if (data.type === 'connection') {
+                        log(`🎯 Training channel info: ${data.message}`);
+                    }
+                } catch (error) {
+                    log(`❌ Error parsing training data: ${error}`);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`❌ Training channel error: ${error}`);
+                document.getElementById('training-status').textContent = 'Training Channel: Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...');
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('✅ Progress channel connected');
+                document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📨 Progress message received: ${event.data}`);
+                    
+                    if (data.type === 'progress') {
+                        updateProgress(data);
+                    } else if (data.type === 'connection') {
+                        log(`📊 Progress channel info: ${data.message}`);
+                    }
+                } catch (error) {
+                    log(`❌ Error parsing progress data: ${error}`);
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`❌ Progress channel error: ${error}`);
+                document.getElementById('progress-status').textContent = 'Progress Channel: Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+        
+        function testTrainingData() {
+            log('🧪 Sending test training data...');
+            fetch('/training_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: 'training_update',
+                    data: {
+                        epoch: 3,
+                        total_epochs: 10,
+                        generator_loss: 0.55,
+                        discriminator_loss: 0.45,
+                        real_scores: 0.92,
+                        fake_scores: 0.12
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log(`✅ Test training data sent: ${JSON.stringify(data)}`))
+            .catch(error => log(`❌ Error sending test training data: ${error}`));
+        }
+        
+        function testProgressData() {
+            log('🧪 Sending test progress data...');
+            fetch('/progress_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: 'progress',
+                    epoch: 3,
+                    progress_percent: 75,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log(`✅ Test progress data sent: ${JSON.stringify(data)}`))
+            .catch(error => log(`❌ Error sending test progress data: ${error}`));
+        }
+        
+        // Connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, connecting to SSE channels...');
+            connectTrainingChannel();
+            connectProgressChannel();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) trainingEventSource.close();
+            if (progressEventSource) progressEventSource.close();
+        });
+    </script>
+</body>
+</html> 

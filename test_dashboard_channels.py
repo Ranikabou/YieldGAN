@@ -12,8 +12,15 @@ import random
 import os
 
 class DashboardChannelTester:
-    def __init__(self, dashboard_url="http://localhost:8081"):
-        self.dashboard_url = dashboard_url
+    def __init__(self, dashboard_url=None):
+        if dashboard_url is None:
+            try:
+                from utils.port_manager import get_dashboard_url
+                self.dashboard_url = get_dashboard_url()
+            except ImportError:
+                self.dashboard_url = "http://localhost:8083"  # Updated default
+        else:
+            self.dashboard_url = dashboard_url
         self.epoch = 1
         self.total_epochs = 10
     

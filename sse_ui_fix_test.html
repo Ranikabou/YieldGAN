@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE UI Fix Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f5f5f5;
+        }
+        .status { 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .connected { 
+            background-color: #d4edda; 
+            color: #155724; 
+            border-left: 5px solid #28a745;
+        }
+        .disconnected { 
+            background-color: #f8d7da; 
+            color: #721c24; 
+            border-left: 5px solid #dc3545;
+        }
+        .data-card { 
+            background-color: white; 
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #007bff;
+        }
+        .console-log { 
+            height: 350px; 
+            overflow-y: auto; 
+            background: #1a1a1a; 
+            color: #00ff00; 
+            padding: 15px; 
+            font-family: 'Courier New', monospace; 
+            font-size: 13px;
+            border-radius: 8px;
+            border: 2px solid #333;
+        }
+        .metric { 
+            display: inline-block; 
+            background: #e3f2fd; 
+            padding: 8px 12px; 
+            margin: 5px; 
+            border-radius: 6px;
+            border-left: 3px solid #2196f3;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196f3;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 SSE UI Fix Verification Test</h1>
+        <p>Testing that SSE updates display properly without UI refresh interference</p>
+    </div>
+    
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value" id="messages-received">0</div>
+            <div class="stat-label">Messages Received</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="training-updates">0</div>
+            <div class="stat-label">Training Updates</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="progress-updates">0</div>
+            <div class="stat-label">Progress Updates</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="uptime">00:00</div>
+            <div class="stat-label">Connection Uptime</div>
+        </div>
+    </div>
+    
+    <div id="training-status" class="status disconnected">🎯 Training Channel: Disconnected</div>
+    <div id="progress-status" class="status disconnected">📊 Progress Channel: Disconnected</div>
+    
+    <div class="data-card">
+        <h3>🎯 Latest Training Data</h3>
+        <div id="training-data">
+            <div style="color: #666; text-align: center; padding: 20px;">
+                No training data received yet...
+            </div>
+        </div>
+    </div>
+    
+    <div class="data-card">
+        <h3>📊 Latest Progress Data</h3>
+        <div id="progress-data">
+            <div style="color: #666; text-align: center; padding: 20px;">
+                No progress data received yet...
+            </div>
+        </div>
+    </div>
+    
+    <div class="data-card">
+        <h3>📋 Connection Log</h3>
+        <div id="console-log" class="console-log"></div>
+    </div>
+    
+    <script>
+        // Statistics tracking
+        let messageCount = 0;
+        let trainingUpdateCount = 0;
+        let progressUpdateCount = 0;
+        let startTime = Date.now();
+        
+        // Update statistics
+        function updateStats() {
+            document.getElementById('messages-received').textContent = messageCount;
+            document.getElementById('training-updates').textContent = trainingUpdateCount;
+            document.getElementById('progress-updates').textContent = progressUpdateCount;
+            
+            // Update uptime
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(uptime / 60);
+            const seconds = uptime % 60;
+            document.getElementById('uptime').textContent = 
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        // Update stats every second
+        setInterval(updateStats, 1000);
+        
+        // Connection references
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function log(message, type = 'info') {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'training' ? '🎯' : type === 'progress' ? '📊' : 'ℹ️';
+            const color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : type === 'training' ? '#74c0fc' : type === 'progress' ? '#ffd43b' : '#00ff00';
+            
+            consoleLog.innerHTML += `<div style="color: ${color};">[${timestamp}] ${prefix} ${message}</div>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+            
+            messageCount++;
+        }
+        
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('Connecting to training channel...', 'info');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('Training channel connected successfully!', 'success');
+                document.getElementById('training-status').textContent = '🎯 Training Channel: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`Training data received: ${data.type}`, 'training');
+                    
+                    if (data.type === 'training_update') {
+                        trainingUpdateCount++;
+                        updateTrainingDisplay(data);
+                        log(`📈 Training metrics - Gen Loss: ${data.data.generator_loss?.toFixed(4)}, Disc Loss: ${data.data.discriminator_loss?.toFixed(4)}, Epoch: ${data.data.epoch}`, 'training');
+                    } else if (data.type === 'connection') {
+                        log(`Training channel info: ${data.message}`, 'training');
+                    } else if (data.type === 'heartbeat') {
+                        // log(`Training heartbeat received`, 'training');
+                    } else {
+                        log(`Unknown training data type: ${data.type}`, 'training');
+                    }
+                } catch (error) {
+                    log(`Error parsing training data: ${error.message}`, 'error');
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`Training channel error: ${error}`, 'error');
+                document.getElementById('training-status').textContent = '🎯 Training Channel: Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('Connecting to progress channel...', 'info');
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('Progress channel connected successfully!', 'success');
+                document.getElementById('progress-status').textContent = '📊 Progress Channel: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`Progress data received: ${data.type}`, 'progress');
+                    
+                    if (data.type === 'progress') {
+                        progressUpdateCount++;
+                        updateProgressDisplay(data);
+                        log(`📊 Progress update - Epoch: ${data.epoch}, Progress: ${data.progress_percent}%`, 'progress');
+                    } else if (data.type === 'connection') {
+                        log(`Progress channel info: ${data.message}`, 'progress');
+                    } else if (data.type === 'heartbeat') {
+                        // log(`Progress heartbeat received`, 'progress');
+                    } else {
+                        log(`Unknown progress data type: ${data.type}`, 'progress');
+                    }
+                } catch (error) {
+                    log(`Error parsing progress data: ${error.message}`, 'error');
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`Progress channel error: ${error}`, 'error');
+                document.getElementById('progress-status').textContent = '📊 Progress Channel: Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+        }
+        
+        function updateTrainingDisplay(data) {
+            const trainingDataDiv = document.getElementById('training-data');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            if (data.data) {
+                trainingDataDiv.innerHTML = `
+                    <div class="metric">📈 Generator Loss: <strong>${data.data.generator_loss?.toFixed(6) || 'N/A'}</strong></div>
+                    <div class="metric">📉 Discriminator Loss: <strong>${data.data.discriminator_loss?.toFixed(6) || 'N/A'}</strong></div>
+                    <div class="metric">⏰ Epoch: <strong>${data.data.epoch || 'N/A'}</strong></div>
+                    <div class="metric">🎯 Real Scores: <strong>${data.data.real_scores?.toFixed(4) || 'N/A'}</strong></div>
+                    <div class="metric">🎲 Fake Scores: <strong>${data.data.fake_scores?.toFixed(4) || 'N/A'}</strong></div>
+                    <div style="margin-top: 10px; color: #666; font-size: 12px;">Last updated: ${timestamp}</div>
+                `;
+            } else {
+                trainingDataDiv.innerHTML = `
+                    <div style="color: #f39c12; text-align: center; padding: 10px;">
+                        Training data received but no metrics available
+                    </div>
+                `;
+            }
+        }
+        
+        function updateProgressDisplay(data) {
+            const progressDataDiv = document.getElementById('progress-data');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            progressDataDiv.innerHTML = `
+                <div class="metric">📊 Epoch: <strong>${data.epoch || 'N/A'}</strong></div>
+                <div class="metric">📈 Progress: <strong>${data.progress_percent?.toFixed(1) || 'N/A'}%</strong></div>
+                <div style="margin-top: 15px;">
+                    <div style="background: #e0e0e0; height: 20px; border-radius: 10px; overflow: hidden;">
+                        <div style="background: linear-gradient(90deg, #4caf50, #8bc34a); height: 100%; width: ${data.progress_percent || 0}%; transition: width 0.5s ease;"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; color: #666; font-size: 12px;">Last updated: ${timestamp}</div>
+            `;
+        }
+        
+        // Initialize connections on page load
+        window.addEventListener('load', function() {
+            log('🚀 SSE UI Fix Test page loaded - initializing connections...', 'success');
+            connectTrainingChannel();
+            connectProgressChannel();
+            log('✅ No log channel connection (disabled to prevent interference)', 'success');
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            log('🧹 Connections cleaned up on page unload', 'info');
+        });
+        
+        // Test specific logging
+        log('🔧 SSE UI Fix Test initialized - monitoring for proper data display', 'success');
+        log('📋 This test verifies that:', 'info');
+        log('   1. SSE connections work without interference', 'info');
+        log('   2. Training data updates display in real-time', 'info');
+        log('   3. Progress data updates display properly', 'info');
+        log('   4. No excessive polling causes UI refresh issues', 'info');
+        log('   5. Log channel is disabled to prevent conflicts', 'info');
+    </script>
+</body>
+</html> 

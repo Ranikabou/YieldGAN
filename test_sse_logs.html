@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Log Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .log-entry {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry.error { border-left-color: #dc3545; }
+        .log-entry.success { border-left-color: #28a745; }
+        .log-entry.warning { border-left-color: #ffc107; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-warning { background-color: #ffc107; color: black; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 SSE Log Connection Test</h1>
+    
+    <div class="container">
+        <h2>Connection Status</h2>
+        <div id="connection-status" class="status disconnected">Disconnected</div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div id="total-events" class="stat-number">0</div>
+                <div class="stat-label">Total Events</div>
+            </div>
+            <div class="stat-card">
+                <div id="connection-time" class="stat-number">0s</div>
+                <div class="stat-label">Connection Time</div>
+            </div>
+            <div class="stat-card">
+                <div id="last-event" class="stat-number">-</div>
+                <div class="stat-label">Last Event</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="connect-btn" class="btn-primary">Connect to Log SSE</button>
+            <button id="disconnect-btn" class="btn-danger" disabled>Disconnect</button>
+            <button id="send-test-log" class="btn-success">Send Test Log</button>
+            <button id="clear-logs" class="btn-warning">Clear Logs</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>Live Log Events</h2>
+        <div id="log-container"></div>
+    </div>
+    
+    <div class="container">
+        <h2>Connection Info</h2>
+        <div id="connection-info">
+            <p><strong>SSE Endpoint:</strong> <code>/events/logs</code></p>
+            <p><strong>Log Data Endpoint:</strong> <code>/log_data</code></p>
+            <p><strong>Dashboard URL:</strong> <a href="http://localhost:8082" target="_blank">http://localhost:8082</a></p>
+        </div>
+    </div>
+
+    <script>
+        class SSELogTester {
+            constructor() {
+                this.eventSource = null;
+                this.connected = false;
+                this.startTime = null;
+                this.eventCount = 0;
+                this.lastEventTime = null;
+                
+                this.initializeElements();
+                this.bindEvents();
+                this.startConnectionTimer();
+            }
+            
+            initializeElements() {
+                this.connectBtn = document.getElementById('connect-btn');
+                this.disconnectBtn = document.getElementById('disconnect-btn');
+                this.sendTestLogBtn = document.getElementById('send-test-log');
+                this.clearLogsBtn = document.getElementById('clear-logs');
+                this.statusDiv = document.getElementById('connection-status');
+                this.logContainer = document.getElementById('log-container');
+                this.totalEventsDiv = document.getElementById('total-events');
+                this.connectionTimeDiv = document.getElementById('connection-time');
+                this.lastEventDiv = document.getElementById('last-event');
+            }
+            
+            bindEvents() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.sendTestLogBtn.addEventListener('click', () => this.sendTestLog());
+                this.clearLogsBtn.addEventListener('click', () => this.clearLogs());
+            }
+            
+            connect() {
+                if (this.connected) return;
+                
+                this.updateStatus('connecting', 'Connecting...');
+                this.startTime = Date.now();
+                
+                try {
+                    this.eventSource = new EventSource('/events/logs');
+                    
+                    this.eventSource.onopen = (event) => {
+                        this.connected = true;
+                        this.updateStatus('connected', 'Connected to Log SSE');
+                        this.connectBtn.disabled = true;
+                        this.disconnectBtn.disabled = false;
+                        this.sendTestLogBtn.disabled = false;
+                        console.log('SSE connection opened');
+                    };
+                    
+                    this.eventSource.onmessage = (event) => {
+                        this.handleEvent(event);
+                    };
+                    
+                    this.eventSource.onerror = (event) => {
+                        console.error('SSE error:', event);
+                        this.updateStatus('disconnected', 'Connection Error');
+                        this.disconnect();
+                    };
+                    
+                } catch (error) {
+                    console.error('Failed to create EventSource:', error);
+                    this.updateStatus('disconnected', 'Failed to connect');
+                }
+            }
+            
+            disconnect() {
+                if (this.eventSource) {
+                    this.eventSource.close();
+                    this.eventSource = null;
+                }
+                
+                this.connected = false;
+                this.updateStatus('disconnected', 'Disconnected');
+                this.connectBtn.disabled = false;
+                this.disconnectBtn.disabled = true;
+                this.sendTestLogBtn.disabled = true;
+                this.startTime = null;
+                
+                console.log('SSE connection closed');
+            }
+            
+            handleEvent(event) {
+                this.eventCount++;
+                this.lastEventTime = new Date();
+                
+                // Update stats
+                this.totalEventsDiv.textContent = this.eventCount;
+                this.lastEventDiv.textContent = this.lastEventTime.toLocaleTimeString();
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    this.addLogEntry(data, 'success');
+                    console.log('Received SSE event:', data);
+                } catch (error) {
+                    this.addLogEntry({ message: event.data, error: true }, 'error');
+                    console.log('Received raw SSE data:', event.data);
+                }
+            }
+            
+            addLogEntry(data, type = 'success') {
+                const logDiv = document.createElement('div');
+                logDiv.className = `log-entry ${type}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                const message = data.message || data.type || JSON.stringify(data);
+                
+                logDiv.innerHTML = `
+                    <strong>[${timestamp}]</strong> ${message}
+                    ${data.source ? `<br><small>Source: ${data.source}</small>` : ''}
+                `;
+                
+                this.logContainer.insertBefore(logDiv, this.logContainer.firstChild);
+                
+                // Limit log entries to prevent memory issues
+                if (this.logContainer.children.length > 100) {
+                    this.logContainer.removeChild(this.logContainer.lastChild);
+                }
+            }
+            
+            async sendTestLog() {
+                try {
+                    const testLog = {
+                        type: "log_entry",
+                        data: {
+                            message: `Test log message at ${new Date().toISOString()}`,
+                            source: "browser_test",
+                            timestamp: new Date().toISOString()
+                        },
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    const response = await fetch('/log_data', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(testLog)
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        this.addLogEntry({ message: `Test log sent successfully: ${result.message}` }, 'success');
+                    } else {
+                        this.addLogEntry({ message: `Failed to send test log: ${response.status}` }, 'error');
+                    }
+                } catch (error) {
+                    this.addLogEntry({ message: `Error sending test log: ${error.message}` }, 'error');
+                }
+            }
+            
+            clearLogs() {
+                this.logContainer.innerHTML = '';
+                this.eventCount = 0;
+                this.totalEventsDiv.textContent = '0';
+                this.lastEventDiv.textContent = '-';
+            }
+            
+            updateStatus(type, message) {
+                this.statusDiv.className = `status ${type}`;
+                this.statusDiv.textContent = message;
+            }
+            
+            startConnectionTimer() {
+                setInterval(() => {
+                    if (this.startTime && this.connected) {
+                        const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                        this.connectionTimeDiv.textContent = `${elapsed}s`;
+                    } else {
+                        this.connectionTimeDiv.textContent = '0s';
+                    }
+                }, 1000);
+            }
+        }
+        
+        // Initialize the tester when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new SSELogTester();
+        });
+    </script>
+</body>
+</html> 

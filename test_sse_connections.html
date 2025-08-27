@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .log { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>SSE Connection Test</h1>
+    
+    <div id="training-status" class="status disconnected">Training: Disconnected</div>
+    <div id="progress-status" class="status disconnected">Progress: Disconnected</div>
+    <div id="log-status" class="status disconnected">Logs: Disconnected</div>
+    
+    <div id="log" class="log"></div>
+    
+    <script>
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        // Global EventSource variables - only create once
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logEventSource = null;
+        
+        // Single connection manager to prevent duplicates
+        function initializeSSEConnections() {
+            log('🚀 Initializing SSE connections...');
+            
+            // Close any existing connections first
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+            }
+            if (logEventSource) {
+                logEventSource.close();
+                logEventSource = null;
+            }
+            
+            // Create single training channel connection
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('🎯 Training channel connected');
+                document.getElementById('training-status').textContent = 'Training: Connected';
+                document.getElementById('training-status').className = 'status connected';
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`🎯 Training data: ${JSON.stringify(data)}`);
+                } catch (error) {
+                    log(`🎯 Error: ${error}`);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log(`🎯 Training error: ${error}`);
+                document.getElementById('training-status').textContent = 'Training: Error';
+                document.getElementById('training-status').className = 'status disconnected';
+            };
+            
+            // Create single progress channel connection
+            progressEventSource = new EventSource('/events/progress');
+            
+            progressEventSource.onopen = function() {
+                log('📊 Progress channel connected');
+                document.getElementById('progress-status').textContent = 'Progress: Connected';
+                document.getElementById('progress-status').className = 'status connected';
+            };
+            
+            progressEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📊 Progress data: ${JSON.stringify(data)}`);
+                } catch (error) {
+                    log(`📊 Progress error: ${error}`);
+                }
+            };
+            
+            progressEventSource.onerror = function(error) {
+                log(`📊 Progress error: ${error}`);
+                document.getElementById('progress-status').textContent = 'Progress: Error';
+                document.getElementById('progress-status').className = 'status disconnected';
+            };
+            
+            // Create single log channel connection
+            logEventSource = new EventSource('/events/logs');
+            
+            logEventSource.onopen = function() {
+                log('📝 Log channel connected');
+                document.getElementById('log-status').textContent = 'Logs: Connected';
+                document.getElementById('log-status').className = 'status connected';
+            };
+            
+            logEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📝 Log data: ${JSON.stringify(data)}`);
+                } catch (error) {
+                    log(`📝 Log error: ${error}`);
+                }
+            };
+            
+            logEventSource.onerror = function(error) {
+                log(`📝 Log error: ${error}`);
+                document.getElementById('log-status').textContent = 'Logs: Error';
+                document.getElementById('log-status').className = 'status disconnected';
+            };
+            
+            log('✅ SSE connections initialized');
+        }
+        
+        // Cleanup function for page unload
+        function cleanupSSEConnections() {
+            log('🧹 Cleaning up SSE connections...');
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+            }
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+            }
+            if (logEventSource) {
+                logEventSource.close();
+                logEventSource = null;
+            }
+            log('✅ SSE connections cleaned up');
+        }
+        
+        // Initialize connections on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, initializing SSE connections');
+            initializeSSEConnections();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanupSSEConnections);
+        
+        log('✅ Test page loaded');
+    </script>
+</body>
+</html> 

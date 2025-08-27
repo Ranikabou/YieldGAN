@@ -134,16 +134,17 @@ class Discriminator(nn.Module):
             Probability of real data of shape (batch_size, 1)
         """
         batch_size = x.size(0)
+        actual_sequence_length = x.size(1)  # Use actual sequence length from input
         
         # Process each timestep
         timestep_outputs = []
-        for t in range(self.sequence_length):
+        for t in range(actual_sequence_length):
             timestep_input = x[:, t, :]  # (batch_size, input_dim)
             timestep_output = self.input_projection(timestep_input)
             timestep_outputs.append(timestep_output)
         
         # Average across timesteps
-        x = torch.stack(timestep_outputs, dim=1)  # (batch_size, sequence_length, hidden_dims[0])
+        x = torch.stack(timestep_outputs, dim=1)  # (batch_size, actual_sequence_length, hidden_dims[0])
         x = x.mean(dim=1)  # (batch_size, hidden_dims[0])
         
         # Process through main network
@@ -316,10 +317,11 @@ class WassersteinCritic(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass for WGAN critic."""
         batch_size = x.size(0)
+        actual_sequence_length = x.size(1)  # Use actual sequence length from input
         
         # Process each timestep
         timestep_outputs = []
-        for t in range(self.sequence_length):
+        for t in range(actual_sequence_length):
             timestep_input = x[:, t, :]
             timestep_output = self.input_projection(timestep_input)
             timestep_outputs.append(timestep_output)

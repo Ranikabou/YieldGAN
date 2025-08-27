@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Debug - SSE Connections</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .debug { background-color: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Dashboard Debug - SSE Connections</h1>
+    
+    <div class="debug">
+        <h3>🔌 SSE Connection Status</h3>
+        <div id="training-status" class="status disconnected">Training: Disconnected</div>
+        <div id="progress-status" class="status disconnected">Progress: Disconnected</div>
+        <div id="logs-status" class="status disconnected">Logs: Disconnected</div>
+    </div>
+    
+    <div class="debug">
+        <h3>📊 Live Metrics (Main Dashboard Style)</h3>
+        <div>Training Status: <span id="status-text">Idle</span></div>
+        <div>Generator Loss: <span id="gen-loss">-</span></div>
+        <div>Discriminator Loss: <span id="disc-loss">-</span></div>
+        <div>Current Epoch: <span id="current-epoch">-</span></div>
+    </div>
+    
+    <div class="debug">
+        <h3>📋 Console Log</h3>
+        <div id="console-log" style="height: 300px; overflow-y: auto; background: #2d3748; color: #e2e8f0; padding: 15px; font-family: monospace; font-size: 12px;"></div>
+    </div>
+    
+    <div class="debug">
+        <h3>🧪 Test Controls</h3>
+        <button onclick="testTrainingData()">Send Test Training Data</button>
+        <button onclick="testProgressData()">Send Test Progress Data</button>
+        <button onclick="checkConnections()">Check Connections</button>
+    </div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logsEventSource = null;
+        
+        function log(message) {
+            const consoleLog = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+            console.log(message);
+        }
+        
+        // Main Dashboard Style SSE Connection Functions
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...');
+            
+            try {
+                trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function() {
+                    log('🎯 Connected to Training SSE Channel');
+                    document.getElementById('training-status').textContent = 'Training: Connected';
+                    document.getElementById('training-status').className = 'status connected';
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    try {
+                        log('🎯 Raw training event received: ' + event.data);
+                        const data = JSON.parse(event.data);
+                        log('🎯 Training data received: ' + JSON.stringify(data));
+                        
+                        if (data.type === 'training_update') {
+                            log('🎯 Updating dashboard with training data: ' + JSON.stringify(data));
+                            updateDashboard(data);
+                        } else if (data.type === 'training_complete') {
+                            log('🎯 Training completed: ' + JSON.stringify(data));
+                            updateDashboard(data);
+                        } else if (data.type === 'training_start') {
+                            log('🎯 Training started: ' + JSON.stringify(data));
+                            updateDashboard(data);
+                        } else if (data.type === 'connection') {
+                            log('🎯 Training channel connected: ' + data.message);
+                        } else if (data.type === 'heartbeat') {
+                            log('🎯 Training heartbeat received: ' + data.timestamp);
+                        } else {
+                            log('🎯 Unknown training data type: ' + data.type + ' ' + JSON.stringify(data));
+                        }
+                    } catch (error) {
+                        log('🎯 Error parsing training data: ' + error + ' ' + event.data);
+                    }
+                };
+                
+                trainingEventSource.onerror = function(error) {
+                    log('🎯 Training channel connection error: ' + error);
+                    document.getElementById('training-status').textContent = 'Training: Error';
+                    document.getElementById('training-status').className = 'status disconnected';
+                };
+                
+            } catch (error) {
+                log('🎯 Error creating training EventSource: ' + error);
+            }
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...');
+            
+            try {
+                progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function() {
+                    log('📊 Connected to Progress SSE Channel');
+                    document.getElementById('progress-status').textContent = 'Progress: Connected';
+                    document.getElementById('progress-status').className = 'status connected';
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log('📊 Progress data received: ' + JSON.stringify(data));
+                        
+                        if (data.type === 'progress') {
+                            log('📊 Updating progress with data: ' + JSON.stringify(data));
+                            updateProgress(data);
+                        } else if (data.type === 'connection') {
+                            log('📊 Progress channel connected: ' + data.message);
+                        } else if (data.type === 'heartbeat') {
+                            log('📊 Progress heartbeat received: ' + data.timestamp);
+                        } else {
+                            log('📊 Unknown progress data type: ' + data.type + ' ' + JSON.stringify(data));
+                        }
+                    } catch (error) {
+                        log('📊 Error parsing progress data: ' + error + ' ' + event.data);
+                    }
+                };
+                
+                progressEventSource.onerror = function(error) {
+                    log('📊 Progress channel connection error: ' + error);
+                    document.getElementById('progress-status').textContent = 'Progress: Error';
+                    document.getElementById('progress-status').className = 'status disconnected';
+                };
+                
+            } catch (error) {
+                log('📊 Error creating progress EventSource: ' + error);
+            }
+        }
+        
+        function connectLogsChannel() {
+            if (logsEventSource) {
+                logsEventSource.close();
+            }
+            
+            logsEventSource = new EventSource('/events/logs');
+            
+            logsEventSource.onopen = function() {
+                log('📝 Connected to Log SSE Channel');
+                document.getElementById('logs-status').textContent = 'Logs: Connected';
+                document.getElementById('logs-status').className = 'status connected';
+            };
+            
+            logsEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log('📝 Log data received: ' + JSON.stringify(data));
+                    
+                    if (data.type === 'connection') {
+                        log('📝 Log channel connected: ' + data.message);
+                    } else if (data.type === 'heartbeat') {
+                        log('📝 Log heartbeat received: ' + data.timestamp);
+                    }
+                } catch (error) {
+                    log('📝 Error parsing log data: ' + error + ' ' + event.data);
+                }
+            };
+            
+            logsEventSource.onerror = function(error) {
+                log('📝 Log channel connection error: ' + error);
+                document.getElementById('logs-status').textContent = 'Logs: Error';
+                document.getElementById('logs-status').className = 'status disconnected';
+            };
+        }
+        
+        // Main Dashboard Style Update Functions
+        function updateDashboard(data) {
+            log('🎯 Updating dashboard with: ' + JSON.stringify(data));
+            log('🎯 Data type: ' + data.type);
+            log('🎯 Data content: ' + JSON.stringify(data, null, 2));
+            
+            if (data.type === 'training_update') {
+                log('🎯 Processing training update: ' + JSON.stringify(data.data));
+                
+                // Update training status to Running when we receive training data
+                const statusElement = document.getElementById('status-text');
+                log('🎯 Looking for status-text element: ' + statusElement);
+                if (statusElement) {
+                    statusElement.textContent = 'Running';
+                    statusElement.className = 'text-xl font-bold text-green-600';
+                    log('✅ Updated training status to Running');
+                } else {
+                    log('❌ status-text element not found');
+                }
+                
+                // Update status cards
+                const genLossElement = document.getElementById('gen-loss');
+                const discLossElement = document.getElementById('disc-loss');
+                const currentEpochElement = document.getElementById('current-epoch');
+                
+                log('🎯 Found elements: ' + JSON.stringify({
+                    genLoss: genLossElement,
+                    discLoss: discLossElement,
+                    currentEpoch: currentEpochElement
+                }));
+                
+                if (genLossElement) {
+                    genLossElement.textContent = data.data.generator_loss.toFixed(4);
+                    log('✅ Updated generator loss: ' + data.data.generator_loss);
+                } else {
+                    log('❌ gen-loss element not found');
+                }
+                
+                if (discLossElement) {
+                    discLossElement.textContent = data.data.discriminator_loss.toFixed(4);
+                    log('✅ Updated discriminator loss: ' + data.data.discriminator_loss);
+                } else {
+                    log('❌ disc-loss element not found');
+                }
+                
+                if (currentEpochElement) {
+                    currentEpochElement.textContent = data.data.epoch;
+                    log('✅ Updated current epoch: ' + data.data.epoch);
+                } else {
+                    log('❌ current-epoch element not found');
+                }
+                
+            } else if (data.type === 'training_start') {
+                log('🚀 Training started: ' + JSON.stringify(data.data));
+                document.getElementById('status-text').textContent = 'Running';
+                document.getElementById('status-text').className = 'text-2xl font-bold text-green-600';
+                
+            } else if (data.type === 'training_complete') {
+                log('✅ Training completed: ' + JSON.stringify(data.data));
+                document.getElementById('status-text').textContent = data.data.status === 'completed' ? 'Completed' : 'Failed';
+                document.getElementById('status-text').className = data.data.status === 'completed' ? 
+                    'text-2xl font-bold text-green-600' : 'text-2xl font-bold text-red-600';
+            }
+        }
+        
+        function updateProgress(data) {
+            log('📊 Progress update: ' + JSON.stringify(data));
+            
+            if (data.type === 'progress') {
+                log('📊 Processing progress: ' + data.progress_percent + '% for epoch ' + data.epoch);
+            }
+        }
+        
+        // Test Functions
+        function testTrainingData() {
+            log('🧪 Sending test training data...');
+            fetch('/training_data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'training_update',
+                    data: {
+                        epoch: 1,
+                        total_epochs: 10,
+                        generator_loss: 0.75,
+                        discriminator_loss: 0.65,
+                        real_scores: 0.85,
+                        fake_scores: 0.25
+                    },
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log('✅ Test training data sent: ' + JSON.stringify(data)))
+            .catch(error => log('❌ Error sending test training data: ' + error));
+        }
+        
+        function testProgressData() {
+            log('🧪 Sending test progress data...');
+            fetch('/progress_data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'progress',
+                    epoch: 1,
+                    progress_percent: 75,
+                    timestamp: new Date().toISOString()
+                })
+            })
+            .then(response => response.json())
+            .then(data => log('✅ Test progress data sent: ' + JSON.stringify(data)))
+            .catch(error => log('❌ Error sending test progress data: ' + error));
+        }
+        
+        function checkConnections() {
+            log('🔍 Checking connection status...');
+            
+            fetch('/api/training_status')
+                .then(response => response.json())
+                .then(data => log('📊 Training Status: ' + JSON.stringify(data)))
+                .catch(error => log('❌ Error checking training status: ' + error));
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, setting up SSE channels...');
+            connectTrainingChannel();
+            connectProgressChannel();
+            connectLogsChannel();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) trainingEventSource.close();
+            if (progressEventSource) progressEventSource.close();
+            if (logsEventSource) logsEventSource.close();
+        });
+    </script>
+</body>
+</html> 

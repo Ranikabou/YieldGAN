@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Connection Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .error { background-color: #fff3cd; color: #856404; }
+        .log { background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px; height: 400px; overflow-y: auto; font-family: monospace; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 SSE Connection Debug</h1>
+    
+    <div>
+        <button onclick="testTrainingChannel()">Test Training Channel</button>
+        <button onclick="testProgressChannel()">Test Progress Channel</button>
+        <button onclick="testLogChannel()">Test Log Channel</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <h2>Connection Status</h2>
+    <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+    <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+    <div id="log-status" class="status disconnected">Log Channel: Disconnected</div>
+    
+    <h2>Debug Log</h2>
+    <div id="debug-log" class="log"></div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        let logEventSource = null;
+        
+        function log(message) {
+            const debugLog = document.getElementById('debug-log');
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.innerHTML += `[${timestamp}] ${message}\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('debug-log').innerHTML = '';
+        }
+        
+        function testTrainingChannel() {
+            log('🎯 Testing training channel...');
+            
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            try {
+                trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function() {
+                    log('✅ Training channel connected successfully');
+                    document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                    document.getElementById('training-status').className = 'status connected';
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    log(`📨 Training message received: ${event.data}`);
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Parsed training data: ${JSON.stringify(data, null, 2)}`);
+                    } catch (error) {
+                        log(`❌ Error parsing training data: ${error}`);
+                    }
+                };
+                
+                trainingEventSource.onerror = function(error) {
+                    log(`❌ Training channel error: ${error}`);
+                    document.getElementById('training-status').textContent = 'Training Channel: Error';
+                    document.getElementById('training-status').className = 'status error';
+                };
+                
+            } catch (error) {
+                log(`❌ Failed to create training EventSource: ${error}`);
+            }
+        }
+        
+        function testProgressChannel() {
+            log('📊 Testing progress channel...');
+            
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            try {
+                progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function() {
+                    log('✅ Progress channel connected successfully');
+                    document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                    document.getElementById('progress-status').className = 'status connected';
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    log(`📨 Progress message received: ${event.data}`);
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Parsed progress data: ${JSON.stringify(data, null, 2)}`);
+                    } catch (error) {
+                        log(`❌ Error parsing progress data: ${error}`);
+                    }
+                };
+                
+                progressEventSource.onerror = function(error) {
+                    log(`❌ Progress channel error: ${error}`);
+                    document.getElementById('progress-status').textContent = 'Progress Channel: Error';
+                    document.getElementById('progress-status').className = 'status error';
+                };
+                
+            } catch (error) {
+                log(`❌ Failed to create progress EventSource: ${error}`);
+            }
+        }
+        
+        function testLogChannel() {
+            log('📝 Testing log channel...');
+            
+            if (logEventSource) {
+                logEventSource.close();
+            }
+            
+            try {
+                logEventSource = new EventSource('/events/logs');
+                
+                logEventSource.onopen = function() {
+                    log('✅ Log channel connected successfully');
+                    document.getElementById('log-status').textContent = 'Log Channel: Connected';
+                    document.getElementById('log-status').className = 'status connected';
+                };
+                
+                logEventSource.onmessage = function(event) {
+                    log(`📨 Log message received: ${event.data}`);
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Parsed log data: ${JSON.stringify(data, null, 2)}`);
+                    } catch (error) {
+                        log(`❌ Error parsing log data: ${error}`);
+                    }
+                };
+                
+                logEventSource.onerror = function(error) {
+                    log(`❌ Log channel error: ${error}`);
+                    document.getElementById('log-status').textContent = 'Log Channel: Error';
+                    document.getElementById('log-status').className = 'status error';
+                };
+                
+            } catch (error) {
+                log(`❌ Failed to create log EventSource: ${error}`);
+            }
+        }
+        
+        // Test all channels on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, testing SSE connections...');
+            setTimeout(() => {
+                testTrainingChannel();
+                setTimeout(() => testProgressChannel(), 1000);
+                setTimeout(() => testLogChannel(), 2000);
+            }, 500);
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) trainingEventSource.close();
+            if (progressEventSource) progressEventSource.close();
+            if (logEventSource) logEventSource.close();
+        });
+    </script>
+</body>
+</html> 

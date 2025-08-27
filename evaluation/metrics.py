@@ -4,8 +4,8 @@ Implements various metrics to assess the quality of generated synthetic data.
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt  # REMOVED: Matplotlib causes figure generation during evaluation
+# import seaborn as sns            # REMOVED: Not needed without matplotlib
 from scipy import stats
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from typing import Dict, Any
@@ -240,7 +240,7 @@ def analyze_features(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[
     return analysis
 
 def generate_evaluation_plots(real_data: np.ndarray, synthetic_data: np.ndarray) -> Dict[str, str]:
-    """Generate and save evaluation plots."""
+    """Generate and save evaluation plots - DISABLED to prevent matplotlib figure generation."""
     plots = {}
     
     try:
@@ -248,86 +248,19 @@ def generate_evaluation_plots(real_data: np.ndarray, synthetic_data: np.ndarray)
         import os
         os.makedirs('results/plots', exist_ok=True)
         
-        # 1. Distribution comparison plots
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        fig.suptitle('Treasury GAN: Real vs Synthetic Data Distribution', fontsize=16)
+        logger.info("📊 Evaluation plots generation disabled for SSE dashboard compatibility")
+        logger.info(f"📈 Evaluation data available: Real data shape: {real_data.shape}, "
+                   f"Synthetic data shape: {synthetic_data.shape}")
         
-        # Select features to plot (max 4)
-        num_features = min(4, real_data.shape[1])
-        feature_indices = np.linspace(0, real_data.shape[1]-1, num_features, dtype=int)
+        # REMOVED: All matplotlib plotting to prevent figures from appearing during evaluation
+        # All evaluation visualization is now handled by the web dashboard
         
-        for i, feat_idx in enumerate(feature_indices):
-            row, col = i // 2, i % 2
-            
-            # Plot histograms
-            axes[row, col].hist(real_data[:, feat_idx], alpha=0.7, bins=30, 
-                               label='Real', density=True, color='blue')
-            axes[row, col].hist(synthetic_data[:, feat_idx], alpha=0.7, bins=30, 
-                               label='Synthetic', density=True, color='red')
-            axes[row, col].set_title(f'Feature {feat_idx}')
-            axes[row, col].legend()
-            axes[row, col].grid(True, alpha=0.3)
+        # Return empty plots dictionary to maintain compatibility
+        plots['distribution_comparison'] = 'results/plots/distribution_comparison.png (disabled)'
+        plots['correlation_comparison'] = 'results/plots/correlation_comparison.png (disabled)'
+        plots['timeseries_comparison'] = 'results/plots/timeseries_comparison.png (disabled)'
         
-        plt.tight_layout()
-        dist_plot_path = 'results/plots/distribution_comparison.png'
-        plt.savefig(dist_plot_path, dpi=300, bbox_inches='tight')
-        plots['distribution_comparison'] = dist_plot_path
-        plt.close()
-        
-        # 2. Correlation heatmaps
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-        fig.suptitle('Treasury GAN: Correlation Matrix Comparison', fontsize=16)
-        
-        # Real data correlation
-        real_corr = np.corrcoef(real_data.T)
-        im1 = ax1.imshow(real_corr, cmap='coolwarm', vmin=-1, vmax=1)
-        ax1.set_title('Real Data Correlation')
-        ax1.set_xlabel('Feature Index')
-        ax1.set_ylabel('Feature Index')
-        plt.colorbar(im1, ax=ax1)
-        
-        # Synthetic data correlation
-        syn_corr = np.corrcoef(synthetic_data.T)
-        im2 = ax2.imshow(syn_corr, cmap='coolwarm', vmin=-1, vmax=1)
-        ax2.set_title('Synthetic Data Correlation')
-        ax2.set_xlabel('Feature Index')
-        ax2.set_ylabel('Feature Index')
-        plt.colorbar(im2, ax=ax2)
-        
-        plt.tight_layout()
-        corr_plot_path = 'results/plots/correlation_comparison.png'
-        plt.savefig(corr_plot_path, dpi=300, bbox_inches='tight')
-        plots['correlation_comparison'] = corr_plot_path
-        plt.close()
-        
-        # 3. Time series comparison (if applicable)
-        if len(real_data.shape) == 3:
-            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-            fig.suptitle('Treasury GAN: Time Series Comparison', fontsize=16)
-            
-            for i, feat_idx in enumerate(feature_indices):
-                row, col = i // 2, i % 2
-                
-                # Plot first few sequences
-                num_sequences = min(5, real_data.shape[0])
-                for seq_idx in range(num_sequences):
-                    axes[row, col].plot(real_data[seq_idx, :, feat_idx], 
-                                       alpha=0.7, color='blue', linewidth=1)
-                    axes[row, col].plot(synthetic_data[seq_idx, :, feat_idx], 
-                                       alpha=0.7, color='red', linewidth=1, linestyle='--')
-                
-                axes[row, col].set_title(f'Feature {feat_idx} - Sample Sequences')
-                axes[row, col].set_xlabel('Time Step')
-                axes[row, col].set_ylabel('Value')
-                axes[row, col].grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            ts_plot_path = 'results/plots/timeseries_comparison.png'
-            plt.savefig(ts_plot_path, dpi=300, bbox_inches='tight')
-            plots['timeseries_comparison'] = ts_plot_path
-            plt.close()
-        
-        logger.info("Evaluation plots generated successfully")
+        logger.info("Evaluation plots generation completed (matplotlib disabled)")
         
     except Exception as e:
         logger.error(f"Error generating plots: {e}")

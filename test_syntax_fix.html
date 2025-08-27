@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Syntax Fix</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; }
+        #console-output { background-color: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🧪 JavaScript Syntax Fix Test</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Load Dashboard Functions</h3>
+        <p>This test loads the dashboard functions from the main dashboard to check for syntax errors.</p>
+        <button onclick="loadDashboardFunctions()">Load Dashboard Functions</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: Test updateDashboard Function</h3>
+        <p>This test calls the updateDashboard function to verify it works without syntax errors.</p>
+        <button onclick="testUpdateDashboard()">Test updateDashboard</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Console Output</h3>
+        <div id="console-output"></div>
+    </div>
+
+    <script>
+        // Mock console functions to capture output
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+        
+        function logToDisplay(message, type = 'log') {
+            const consoleOutput = document.getElementById('console-output');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.marginBottom = '5px';
+            logEntry.style.fontSize = '12px';
+            
+            let color = '#000';
+            if (type === 'error') color = '#dc3545';
+            else if (type === 'warn') color = '#ffc107';
+            
+            logEntry.innerHTML = `<span style="color: #6c757d;">[${timestamp}]</span> <span style="color: ${color};">${message}</span>`;
+            consoleOutput.appendChild(logEntry);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            logToDisplay(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            logToDisplay(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalConsoleWarn.apply(console, args);
+            logToDisplay(args.join(' '), 'warn');
+        };
+        
+        // Test functions
+        function loadDashboardFunctions() {
+            const resultDiv = document.getElementById('test1-result');
+            resultDiv.innerHTML = '<p>Loading dashboard functions...</p>';
+            
+            try {
+                // Load the dashboard HTML and extract JavaScript
+                fetch('http://localhost:8081/')
+                    .then(response => response.text())
+                    .then(html => {
+                        console.log('📥 Dashboard HTML loaded successfully');
+                        
+                        // Extract script content
+                        const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+                        if (scriptMatch) {
+                            try {
+                                // Test if the JavaScript can be parsed without syntax errors
+                                const scriptContent = scriptMatch[1];
+                                console.log('🔍 Script content length:', scriptContent.length);
+                                
+                                // Try to parse the JavaScript (this will catch syntax errors)
+                                new Function(scriptContent);
+                                console.log('✅ JavaScript syntax is valid');
+                                
+                                resultDiv.innerHTML = '<p class="success">✅ Dashboard functions loaded successfully - No syntax errors!</p>';
+                            } catch (syntaxError) {
+                                console.error('❌ JavaScript syntax error:', syntaxError);
+                                resultDiv.innerHTML = `<p class="error">❌ Syntax error: ${syntaxError.message}</p>`;
+                            }
+                        } else {
+                            console.warn('⚠️ No script tags found');
+                            resultDiv.innerHTML = '<p class="error">❌ No script tags found in dashboard HTML</p>';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('❌ Error loading dashboard:', error);
+                        resultDiv.innerHTML = `<p class="error">❌ Error loading dashboard: ${error.message}</p>`;
+                    });
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+                resultDiv.innerHTML = `<p class="error">❌ Test failed: ${error.message}</p>`;
+            }
+        }
+        
+        function testUpdateDashboard() {
+            const resultDiv = document.getElementById('test2-result');
+            resultDiv.innerHTML = '<p>Testing updateDashboard function...</p>';
+            
+            try {
+                // Load and execute the dashboard functions
+                fetch('http://localhost:8081/')
+                    .then(response => response.text())
+                    .then(html => {
+                        const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+                        if (scriptMatch) {
+                            try {
+                                // Execute the script to load functions
+                                eval(scriptMatch[1]);
+                                console.log('✅ Dashboard functions executed');
+                                
+                                // Test if updateDashboard function exists
+                                if (typeof updateDashboard === 'function') {
+                                    console.log('✅ updateDashboard function found');
+                                    
+                                    // Test calling the function
+                                    const testData = {
+                                        type: 'training_start',
+                                        data: {
+                                            status: 'started',
+                                            config: 'test_config.yaml',
+                                            data_source: 'test_data.csv'
+                                        },
+                                        timestamp: new Date().toISOString()
+                                    };
+                                    
+                                    try {
+                                        updateDashboard(testData);
+                                        console.log('✅ updateDashboard called successfully');
+                                        resultDiv.innerHTML = '<p class="success">✅ updateDashboard function works without errors!</p>';
+                                    } catch (execError) {
+                                        console.error('❌ Error executing updateDashboard:', execError);
+                                        resultDiv.innerHTML = `<p class="error">❌ Execution error: ${execError.message}</p>`;
+                                    }
+                                } else {
+                                    console.error('❌ updateDashboard function not found');
+                                    resultDiv.innerHTML = '<p class="error">❌ updateDashboard function not found</p>';
+                                }
+                            } catch (execError) {
+                                console.error('❌ Error executing dashboard script:', execError);
+                                resultDiv.innerHTML = `<p class="error">❌ Script execution error: ${execError.message}</p>`;
+                            }
+                        } else {
+                            resultDiv.innerHTML = '<p class="error">❌ No script content found</p>';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('❌ Error loading dashboard:', error);
+                        resultDiv.innerHTML = `<p class="error">❌ Error loading dashboard: ${error.message}</p>`;
+                    });
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+                resultDiv.innerHTML = `<p class="error">❌ Test failed: ${error.message}</p>`;
+            }
+        }
+        
+        // Page load
+        window.addEventListener('load', function() {
+            console.log('🧪 Test page loaded');
+            console.log('🔍 Dashboard URL: http://localhost:8081/');
+        });
+    </script>
+</body>
+</html> 

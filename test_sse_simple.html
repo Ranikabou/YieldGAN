@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple SSE Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .log { background-color: #f8f9fa; padding: 10px; margin: 10px 0; border: 1px solid #ddd; height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>Simple SSE Connection Test</h1>
+    
+    <div>
+        <button onclick="connectToTraining()">Connect Training Channel</button>
+        <button onclick="connectToProgress()">Connect Progress Channel</button>
+        <button onclick="disconnectAll()">Disconnect All</button>
+        <button onclick="sendTestData()">Send Test Data</button>
+    </div>
+    
+    <div id="training-status" class="status disconnected">Training Channel: Disconnected</div>
+    <div id="progress-status" class="status disconnected">Progress Channel: Disconnected</div>
+    
+    <div id="log" class="log">Log will appear here...\n</div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.textContent += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function connectToTraining() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🎯 Connecting to training channel...');
+            
+            try {
+                trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function(event) {
+                    log('🎯 Training channel connected!');
+                    document.getElementById('training-status').textContent = 'Training Channel: Connected';
+                    document.getElementById('training-status').className = 'status connected';
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`🎯 Training data received: ${JSON.stringify(data, null, 2)}`);
+                    } catch (error) {
+                        log(`🎯 Training raw data: ${event.data}`);
+                    }
+                };
+                
+                trainingEventSource.onerror = function(event) {
+                    log(`🎯 Training channel error: ${event}`);
+                    log(`🎯 Training readyState: ${trainingEventSource.readyState}`);
+                    document.getElementById('training-status').textContent = 'Training Channel: Error';
+                    document.getElementById('training-status').className = 'status disconnected';
+                };
+            } catch (error) {
+                log(`🎯 Error creating training EventSource: ${error}`);
+            }
+        }
+        
+        function connectToProgress() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            log('📊 Connecting to progress channel...');
+            
+            try {
+                progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function(event) {
+                    log('📊 Progress channel connected!');
+                    document.getElementById('progress-status').textContent = 'Progress Channel: Connected';
+                    document.getElementById('progress-status').className = 'status connected';
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Progress data received: ${JSON.stringify(data, null, 2)}`);
+                    } catch (error) {
+                        log(`📊 Progress raw data: ${event.data}`);
+                    }
+                };
+                
+                progressEventSource.onerror = function(event) {
+                    log(`📊 Progress channel error: ${event}`);
+                    log(`📊 Progress readyState: ${progressEventSource.readyState}`);
+                    document.getElementById('progress-status').textContent = 'Progress Channel: Error';
+                    document.getElementById('progress-status').className = 'status disconnected';
+                };
+            } catch (error) {
+                log(`📊 Error creating progress EventSource: ${error}`);
+            }
+        }
+        
+        function disconnectAll() {
+            log('🔌 Disconnecting all channels...');
+            
+            if (trainingEventSource) {
+                trainingEventSource.close();
+                trainingEventSource = null;
+                document.getElementById('training-status').textContent = 'Training Channel: Disconnected';
+                document.getElementById('training-status').className = 'status disconnected';
+            }
+            
+            if (progressEventSource) {
+                progressEventSource.close();
+                progressEventSource = null;
+                document.getElementById('progress-status').textContent = 'Progress Channel: Disconnected';
+                document.getElementById('progress-status').className = 'status disconnected';
+            }
+            
+            log('✅ All channels disconnected');
+        }
+        
+        async function sendTestData() {
+            log('🧪 Sending test data...');
+            
+            // Send training data
+            try {
+                const trainingResponse = await fetch('/training_data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'training_update',
+                        data: {
+                            epoch: 1,
+                            total_epochs: 5,
+                            generator_loss: 0.75,
+                            discriminator_loss: 0.65,
+                            real_scores: 0.85,
+                            fake_scores: 0.25
+                        },
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                const trainingResult = await trainingResponse.json();
+                log(`✅ Training data sent: ${JSON.stringify(trainingResult)}`);
+            } catch (error) {
+                log(`❌ Error sending training data: ${error}`);
+            }
+            
+            // Send progress data
+            try {
+                const progressResponse = await fetch('/progress_data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'progress',
+                        epoch: 1,
+                        progress_percent: 75,
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                const progressResult = await progressResponse.json();
+                log(`✅ Progress data sent: ${JSON.stringify(progressResult)}`);
+            } catch (error) {
+                log(`❌ Error sending progress data: ${error}`);
+            }
+        }
+        
+        // Auto-connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded. Click buttons to test connections.');
+        });
+    </script>
+</body>
+</html> 

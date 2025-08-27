@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Start Training</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .button { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; cursor: pointer; }
+        .start { background: #3b82f6; color: white; }
+        .stop { background: #ef4444; color: white; }
+        .disabled { opacity: 0.5; cursor: not-allowed; }
+        .log { background: #f3f4f6; padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>Debug Start Training</h1>
+    
+    <div>
+        <button id="start-training" class="button start">▶️ Start Training</button>
+        <button id="stop-training" class="button stop" disabled>⏹️ Stop Training</button>
+    </div>
+    
+    <div>
+        <h3>Status:</h3>
+        <div id="status">Idle</div>
+    </div>
+    
+    <div>
+        <h3>Console Log:</h3>
+        <div id="console-log" class="log"></div>
+    </div>
+    
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            console.log(message);
+        }
+        
+        // Test the start training button
+        document.getElementById('start-training').addEventListener('click', async () => {
+            log('🔍 Start training button clicked');
+            
+            try {
+                log('📡 Making API request to /api/start_training...');
+                
+                const response = await fetch('/api/start_training', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        config: 'config/gan_config.yaml',
+                        data_source: 'treasury_orderbook_sample.csv'
+                    })
+                });
+                
+                log(`📡 Response status: ${response.status}`);
+                log(`📡 Response headers: ${JSON.stringify([...response.headers.entries()])}`);
+                
+                const result = await response.json();
+                log(`📡 Response body: ${JSON.stringify(result)}`);
+                
+                if (result.success) {
+                    log('✅ Training started successfully');
+                    document.getElementById('status').textContent = 'Running';
+                    document.getElementById('status').style.color = 'green';
+                    
+                    // Update button states
+                    document.getElementById('start-training').disabled = true;
+                    document.getElementById('start-training').classList.add('disabled');
+                    document.getElementById('stop-training').disabled = false;
+                    document.getElementById('stop-training').classList.remove('disabled');
+                } else {
+                    log(`❌ Training failed: ${result.error}`);
+                    document.getElementById('status').textContent = `Failed: ${result.error}`;
+                    document.getElementById('status').style.color = 'red';
+                }
+            } catch (error) {
+                log(`❌ Error starting training: ${error.message}`);
+                document.getElementById('status').textContent = `Error: ${error.message}`;
+                document.getElementById('status').style.color = 'red';
+            }
+        });
+        
+        // Test the stop training button
+        document.getElementById('stop-training').addEventListener('click', async () => {
+            log('🔍 Stop training button clicked');
+            
+            try {
+                const response = await fetch('/api/stop_training', {method: 'POST'});
+                const result = await response.json();
+                log(`📡 Stop response: ${JSON.stringify(result)}`);
+                
+                if (result.success) {
+                    log('✅ Training stopped successfully');
+                    document.getElementById('status').textContent = 'Stopped';
+                    document.getElementById('status').style.color = 'red';
+                    
+                    // Update button states
+                    document.getElementById('start-training').disabled = false;
+                    document.getElementById('start-training').classList.remove('disabled');
+                    document.getElementById('stop-training').disabled = true;
+                    document.getElementById('stop-training').classList.add('disabled');
+                }
+            } catch (error) {
+                log(`❌ Error stopping training: ${error.message}`);
+            }
+        });
+        
+        // Test if the dashboard is accessible
+        window.addEventListener('load', async () => {
+            log('🚀 Page loaded, testing dashboard connectivity...');
+            
+            try {
+                const response = await fetch('/');
+                log(`📡 Dashboard response status: ${response.status}`);
+                
+                if (response.ok) {
+                    log('✅ Dashboard is accessible');
+                } else {
+                    log(`❌ Dashboard returned status: ${response.status}`);
+                }
+            } catch (error) {
+                log(`❌ Cannot connect to dashboard: ${error.message}`);
+            }
+        });
+        
+        log('🔧 Debug script loaded');
+    </script>
+</body>
+</html> 

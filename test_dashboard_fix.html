@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Dashboard Fix</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Dashboard Error Fix Test</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Training Start Event</h3>
+        <p>This test simulates the training start event that was causing the error.</p>
+        <button class="btn-primary" onclick="testTrainingStart()">Test Training Start</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: Training Update Event</h3>
+        <p>This test simulates a training update event.</p>
+        <button class="btn-success" onclick="testTrainingUpdate()">Test Training Update</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 3: Training Complete Event</h3>
+        <p>This test simulates a training completion event.</p>
+        <button class="btn-danger" onclick="testTrainingComplete()">Test Training Complete</button>
+        <div id="test3-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 4: Log Entry Event</h3>
+        <p>This test simulates a log entry event.</p>
+        <button class="btn-primary" onclick="testLogEntry()">Test Log Entry</button>
+        <div id="test4-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Console Output</h3>
+        <div id="console-output" style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace; max-height: 300px; overflow-y: auto;"></div>
+    </div>
+
+    <script>
+        // Mock console.log to capture output
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+        
+        function logToDisplay(message, type = 'log') {
+            const consoleOutput = document.getElementById('console-output');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.marginBottom = '5px';
+            logEntry.style.fontSize = '12px';
+            
+            let color = '#000';
+            if (type === 'error') color = '#dc3545';
+            else if (type === 'warn') color = '#ffc107';
+            
+            logEntry.innerHTML = `<span style="color: #6c757d;">[${timestamp}]</span> <span style="color: ${color};">${message}</span>`;
+            consoleOutput.appendChild(logEntry);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            logToDisplay(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            logToDisplay(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalConsoleWarn.apply(console, args);
+            logToDisplay(args.join(' '), 'warn');
+        };
+        
+        // Test functions
+        function testTrainingStart() {
+            const resultDiv = document.getElementById('test1-result');
+            resultDiv.innerHTML = '<p>Testing training start event...</p>';
+            
+            try {
+                // Simulate the exact event that was causing the error
+                const testEvent = {
+                    type: 'training_start',
+                    data: {
+                        status: 'started',
+                        config: 'config/gan_config.yaml',
+                        data_source: 'treasury_orderbook_sample.csv',
+                        message: 'GAN training started'
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Call updateDashboard function if it exists
+                if (typeof updateDashboard === 'function') {
+                    updateDashboard(testEvent);
+                    resultDiv.innerHTML = '<p class="success">✅ Training start event processed successfully!</p>';
+                } else {
+                    resultDiv.innerHTML = '<p class="error">❌ updateDashboard function not found</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+                console.error('Test failed:', error);
+            }
+        }
+        
+        function testTrainingUpdate() {
+            const resultDiv = document.getElementById('test2-result');
+            resultDiv.innerHTML = '<p>Testing training update event...</p>';
+            
+            try {
+                const testEvent = {
+                    type: 'training_update',
+                    data: {
+                        epoch: 1,
+                        total_epochs: 10,
+                        generator_loss: 0.75,
+                        discriminator_loss: 0.65,
+                        real_scores: 0.85,
+                        fake_scores: 0.25
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                if (typeof updateDashboard === 'function') {
+                    updateDashboard(testEvent);
+                    resultDiv.innerHTML = '<p class="success">✅ Training update event processed successfully!</p>';
+                } else {
+                    resultDiv.innerHTML = '<p class="error">❌ updateDashboard function not found</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+                console.error('Test failed:', error);
+            }
+        }
+        
+        function testTrainingComplete() {
+            const resultDiv = document.getElementById('test3-result');
+            resultDiv.innerHTML = '<p>Testing training complete event...</p>';
+            
+            try {
+                const testEvent = {
+                    type: 'training_complete',
+                    data: {
+                        status: 'completed',
+                        return_code: 0,
+                        message: 'Training completed successfully'
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                if (typeof updateDashboard === 'function') {
+                    updateDashboard(testEvent);
+                    resultDiv.innerHTML = '<p class="success">✅ Training complete event processed successfully!</p>';
+                } else {
+                    resultDiv.innerHTML = '<p class="error">❌ updateDashboard function not found</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+                console.error('Test failed:', error);
+            }
+        }
+        
+        function testLogEntry() {
+            const resultDiv = document.getElementById('test4-result');
+            resultDiv.innerHTML = '<p>Testing log entry event...</p>';
+            
+            try {
+                const testEvent = {
+                    type: 'log_entry',
+                    data: {
+                        message: 'Test log message',
+                        source: 'training_output',
+                        timestamp: new Date().toISOString()
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                if (typeof updateDashboard === 'function') {
+                    updateDashboard(testEvent);
+                    resultDiv.innerHTML = '<p class="success">✅ Log entry event processed successfully!</p>';
+                } else {
+                    resultDiv.innerHTML = '<p class="error">❌ updateDashboard function not found</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+                console.error('Test failed:', error);
+            }
+        }
+        
+        // Load the dashboard functions from the main dashboard
+        window.addEventListener('load', function() {
+            console.log('🧪 Test page loaded');
+            console.log('🔍 Attempting to load dashboard functions...');
+            
+            // Try to load the dashboard functions
+            fetch('http://localhost:8081/')
+                .then(response => response.text())
+                .then(html => {
+                    console.log('📥 Dashboard HTML loaded');
+                    // Extract and execute the JavaScript
+                    const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+                    if (scriptMatch) {
+                        try {
+                            eval(scriptMatch[1]);
+                            console.log('✅ Dashboard functions loaded successfully');
+                        } catch (error) {
+                            console.error('❌ Error loading dashboard functions:', error);
+                        }
+                    } else {
+                        console.warn('⚠️ No script tags found in dashboard HTML');
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Error loading dashboard:', error);
+                });
+        });
+    </script>
+</body>
+</html> 

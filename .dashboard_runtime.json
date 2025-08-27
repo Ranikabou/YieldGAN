@@ -1,6 +1,6 @@
 {
-  "dashboard_port": 8086,
-  "dashboard_url": "http://localhost:8086",
-  "updated_at": 1756255387.537729,
+  "dashboard_port": 8082,
+  "dashboard_url": "http://localhost:8082",
+  "updated_at": 1756257290.731135,
   "status": "active"
 }

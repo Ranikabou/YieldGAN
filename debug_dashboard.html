@@ -309,10 +309,26 @@
         function checkConnections() {
             log('🔍 Checking connection status...');
             
-            fetch('/api/training_status')
-                .then(response => response.json())
-                .then(data => log('📊 Training Status: ' + JSON.stringify(data)))
-                .catch(error => log('❌ Error checking training status: ' + error));
+            const tests = [
+                { name: 'Basic Connectivity', test: async () => {
+                    const response = await fetch('/');
+                    return response.ok ? 'Connected' : 'Failed';
+                }},
+                { name: 'Training Status via SSE', test: async () => {
+                    // Training status is now only available via SSE, not REST API
+                    return 'Available via SSE only';
+                }},
+            ];
+
+            tests.forEach(async test => {
+                log(`🧪 Running test: ${test.name}`);
+                try {
+                    const result = await test.test();
+                    log(`✅ ${test.name}: ${result}`);
+                } catch (error) {
+                    log(`❌ ${test.name}: ${error}`);
+                }
+            });
         }
         
         // Initialize on page load

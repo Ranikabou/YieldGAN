@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training Completion Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8">🧪 Training Completion Status Test</h1>
+        
+        <!-- Training Status Display -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Training Status</h2>
+            <div class="flex items-center space-x-4">
+                <div class="p-4 bg-blue-50 rounded-lg">
+                    <h3 class="text-sm font-medium text-blue-700">Current Status</h3>
+                    <p id="status-text" class="text-2xl font-bold text-blue-600">Idle</p>
+                </div>
+                <div class="p-4 bg-gray-50 rounded-lg">
+                    <h3 class="text-sm font-medium text-gray-700">Last Update</h3>
+                    <p id="last-update" class="text-sm text-gray-600">-</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Controls -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Controls</h2>
+            <div class="flex space-x-4">
+                <button id="start-training" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+                    ▶️ Start Training (1 Epoch)
+                </button>
+                <button id="stop-training" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700" disabled>
+                    ⏹️ Stop Training
+                </button>
+                <button id="simulate-completion" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">
+                    🧪 Simulate Completion
+                </button>
+            </div>
+        </div>
+        
+        <!-- Event Log -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">Event Log</h2>
+            <div id="event-log" class="h-64 overflow-y-auto bg-gray-50 p-4 rounded border font-mono text-sm">
+                <!-- Events will be logged here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trainingEventSource = null;
+        let eventCount = 0;
+
+        function log(message) {
+            const eventLog = document.getElementById('event-log');
+            const timestamp = new Date().toLocaleTimeString();
+            eventLog.innerHTML += `[${timestamp}] ${message}\n`;
+            eventLog.scrollTop = eventLog.scrollHeight;
+            console.log(message);
+            
+            // Update last update time
+            document.getElementById('last-update').textContent = timestamp;
+        }
+
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            log('🔗 Connecting to training SSE channel...');
+            trainingEventSource = new EventSource('/events/training');
+            
+            trainingEventSource.onopen = function() {
+                log('✅ Training SSE channel connected');
+            };
+            
+            trainingEventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    eventCount++;
+                    log(`📨 Event #${eventCount}: ${data.type}`);
+                    
+                    if (data.type === 'training_update') {
+                        log(`🎯 Training update: Epoch ${data.data.epoch}, Gen Loss: ${data.data.generator_loss.toFixed(4)}`);
+                        updateStatus('Running', 'text-2xl font-bold text-green-600');
+                        
+                    } else if (data.type === 'training_start') {
+                        log('🚀 Training started');
+                        updateStatus('Running', 'text-2xl font-bold text-green-600');
+                        updateButtons(true, false);
+                        
+                    } else if (data.type === 'training_complete') {
+                        log(`✅ Training completed: ${data.data.status}`);
+                        const statusText = data.data.status === 'completed' ? 'Completed' : 'Failed';
+                        const statusClass = data.data.status === 'completed' ? 
+                            'text-2xl font-bold text-green-600' : 'text-2xl font-bold text-red-600';
+                        updateStatus(statusText, statusClass);
+                        updateButtons(false, true);
+                        
+                    } else if (data.type === 'status_update') {
+                        log(`📊 Status update: ${data.data.status}`);
+                        const statusText = data.data.status.charAt(0).toUpperCase() + data.data.status.slice(1);
+                        let statusClass = 'text-2xl font-bold text-gray-600';
+                        
+                        if (data.data.status === 'completed') {
+                            statusClass = 'text-2xl font-bold text-green-600';
+                            updateButtons(false, true);
+                        } else if (data.data.status === 'failed') {
+                            statusClass = 'text-2xl font-bold text-red-600';
+                            updateButtons(false, true);
+                        } else if (data.data.status === 'running') {
+                            statusClass = 'text-2xl font-bold text-blue-600';
+                            updateButtons(true, false);
+                        }
+                        
+                        updateStatus(statusText, statusClass);
+                        
+                    } else if (data.type === 'connection') {
+                        log(`🔗 Connection info: ${data.message || 'Connected'}`);
+                        
+                    } else {
+                        log(`❓ Unknown event type: ${data.type}`);
+                    }
+                    
+                } catch (error) {
+                    log(`❌ Error parsing event: ${error}`);
+                }
+            };
+            
+            trainingEventSource.onerror = function(error) {
+                log('❌ Training SSE channel error');
+                console.error('SSE Error:', error);
+            };
+        }
+
+        function updateStatus(text, className) {
+            const statusElement = document.getElementById('status-text');
+            statusElement.textContent = text;
+            statusElement.className = className;
+            log(`🎯 Status updated to: ${text}`);
+        }
+
+        function updateButtons(trainingActive, trainingComplete) {
+            const startBtn = document.getElementById('start-training');
+            const stopBtn = document.getElementById('stop-training');
+            
+            if (trainingActive) {
+                startBtn.disabled = true;
+                startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = false;
+                stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                stopBtn.disabled = true;
+                stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // Button event listeners
+        document.getElementById('start-training').addEventListener('click', async () => {
+            try {
+                log('🚀 Starting training...');
+                const response = await fetch('/api/start_training', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        config: 'config/gan_config.yaml',
+                        data_source: 'csv',
+                        epochs: 1  // Just 1 epoch for testing
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    log('✅ Training start request successful');
+                } else {
+                    log(`❌ Training start failed: ${result.error}`);
+                }
+            } catch (error) {
+                log(`❌ Error starting training: ${error}`);
+            }
+        });
+
+        document.getElementById('stop-training').addEventListener('click', async () => {
+            try {
+                log('⏹️ Stopping training...');
+                const response = await fetch('/api/stop_training', {method: 'POST'});
+                const result = await response.json();
+                if (result.success) {
+                    log('✅ Training stopped');
+                    updateStatus('Stopped', 'text-2xl font-bold text-red-600');
+                    updateButtons(false, true);
+                } else {
+                    log(`❌ Stop training failed: ${result.error}`);
+                }
+            } catch (error) {
+                log(`❌ Error stopping training: ${error}`);
+            }
+        });
+
+        document.getElementById('simulate-completion').addEventListener('click', async () => {
+            try {
+                log('🧪 Simulating training completion...');
+                const completionMsg = {
+                    type: 'training_complete',
+                    data: {
+                        status: 'completed',
+                        return_code: 0,
+                        message: 'Training completed successfully (simulated)'
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Manually trigger the event handling
+                const event = { data: JSON.stringify(completionMsg) };
+                trainingEventSource.onmessage(event);
+                
+            } catch (error) {
+                log(`❌ Error simulating completion: ${error}`);
+            }
+        });
+
+        // Connect on page load
+        window.addEventListener('load', function() {
+            log('🚀 Page loaded, connecting to SSE channels...');
+            connectTrainingChannel();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+        });
+    </script>
+</body>
+</html> 

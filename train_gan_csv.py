@@ -69,7 +69,7 @@ class DashboardChannelSender:
             for port in common_ports:
                 try:
                     url = f"http://localhost:{port}"
-                    response = requests.get(f"{url}/api/training_status", timeout=2)
+                    response = requests.get(f"{url}/", timeout=2)
                     if response.status_code == 200:
                         logger.info(f"✅ Found dashboard running on port {port}")
                         return url

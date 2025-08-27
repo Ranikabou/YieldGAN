@@ -94,9 +94,13 @@ class GANDashboard:
         
         # Pending messages for when SSE broadcast fails
         self.pending_completion_message = None
+        self.pending_status_message = None
         
         # Set up routes
         self.setup_routes()
+        
+        # Start background task to broadcast pending messages
+        asyncio.create_task(self.broadcast_pending_messages_periodically())
         
         # Start background tasks
         self.start_background_tasks()
@@ -121,11 +125,11 @@ class GANDashboard:
         # API endpoints
         self.app.router.add_post('/api/start_training', self.start_training)
         self.app.router.add_post('/api/stop_training', self.stop_training)
-        self.app.router.add_get('/api/training_status', self.get_training_status)
         self.app.router.add_get('/api/models', self.get_models)
         self.app.router.add_post('/api/generate_sample', self.generate_sample)
         self.app.router.add_post('/api/upload_csv', self.upload_csv)
         self.app.router.add_get('/api/preview_csv', self.preview_csv)
+        self.app.router.add_post('/api/test_training_complete', self.test_training_complete_event)
         
         # New endpoints for separate channels like test_separate_channels.py
         self.app.router.add_post('/training_data', self.receive_training_data)
@@ -144,6 +148,8 @@ class GANDashboard:
         self.app.router.add_get('/test_sse_connection_simple', self.test_sse_connection_simple)
         self.app.router.add_get('/debug_sse_connections', self.debug_sse_connections)
         self.app.router.add_get('/test_sse_simple', self.test_sse_simple)
+        self.app.router.add_get('/test_status_fix', self.test_status_fix)
+        self.app.router.add_get('/test_training_completion', self.test_training_completion)
     
     def start_background_tasks(self):
         """Start background monitoring tasks."""
@@ -1752,7 +1758,9 @@ class GANDashboard:
                                     updateDashboard(data);
                                 } else if (data.type === 'training_complete') {
                                     console.log('🎯 Training completed:', data);
+                                    console.log('🎯 Calling updateDashboard with training_complete event');
                                     updateDashboard(data);
+                                    console.log('🎯 updateDashboard completed for training_complete');
                                 } else if (data.type === 'training_start') {
                                     console.log('🎯 Training started:', data);
                                     updateDashboard(data);
@@ -2054,9 +2062,20 @@ class GANDashboard:
                         
                     } else if (data.type === 'training_complete') {
                         console.log('✅ Training completed:', data.data);
-                        document.getElementById('status-text').textContent = data.data.status === 'completed' ? 'Completed' : 'Failed';
-                        document.getElementById('status-text').className = data.data.status === 'completed' ? 
-                            'text-2xl font-bold text-green-600' : 'text-2xl font-bold text-red-600';
+                        console.log('🎯 Updating status text for training_complete');
+                        const statusElement = document.getElementById('status-text');
+                        if (statusElement) {
+                            const newStatusText = data.data.status === 'completed' ? 'Completed' : 'Failed';
+                            const newStatusClass = data.data.status === 'completed' ? 
+                                'text-2xl font-bold text-green-600' : 'text-2xl font-bold text-red-600';
+                            
+                            console.log(`🎯 Setting status from "${statusElement.textContent}" to "${newStatusText}"`);
+                            statusElement.textContent = newStatusText;
+                            statusElement.className = newStatusClass;
+                            console.log('✅ Status text updated successfully');
+                        } else {
+                            console.error('❌ status-text element not found in training_complete handler');
+                        }
                         
                         // Re-enable start training button
                         document.getElementById('start-training').disabled = false;
@@ -2112,7 +2131,46 @@ class GANDashboard:
                         
                     } else if (data.type === 'status_update') {
                         console.log('📊 Status update:', data.data);
-                        // Update status if needed
+                        // Update the status display
+                        const statusText = document.getElementById('status-text');
+                        if (statusText) {
+                            statusText.textContent = data.data.status.charAt(0).toUpperCase() + data.data.status.slice(1);
+                            
+                            // Update status color based on status
+                            if (data.data.status === 'completed') {
+                                statusText.className = 'text-2xl font-bold text-green-600';
+                            } else if (data.data.status === 'failed') {
+                                statusText.className = 'text-2xl font-bold text-red-600';
+                            } else if (data.data.status === 'running') {
+                                statusText.className = 'text-2xl font-bold text-blue-600';
+                            } else if (data.data.status === 'stopped') {
+                                statusText.className = 'text-2xl font-bold text-gray-600';
+                            } else {
+                                statusText.className = 'text-2xl font-bold text-gray-600';
+                            }
+                        }
+                        
+                        // Update button states based on status
+                        const startButton = document.getElementById('start-training');
+                        const stopButton = document.getElementById('stop-training');
+                        
+                        if (startButton && stopButton) {
+                            if (data.data.status === 'completed' || data.data.status === 'failed' || data.data.status === 'stopped') {
+                                // Re-enable start button
+                                startButton.disabled = false;
+                                startButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                                // Disable stop button
+                                stopButton.disabled = true;
+                                stopButton.classList.add('opacity-50', 'cursor-not-allowed');
+                            } else if (data.data.status === 'running') {
+                                // Disable start button
+                                startButton.disabled = true;
+                                startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                                // Enable stop button
+                                stopButton.disabled = false;
+                                stopButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        }
                     }
                 }
                 
@@ -2225,6 +2283,8 @@ class GANDashboard:
                         connectProgressChannel();
                     }
                 }, 30000); // Check every 30 seconds (reduced from 10s to avoid interference)
+                
+                // Removed auto-refresh polling - Training status is now only available via SSE
                 
                 // Button event listeners
                 document.getElementById('start-training').addEventListener('click', async () => {
@@ -3351,6 +3411,22 @@ class GANDashboard:
             
             self.training_status = "running"
             
+            # Broadcast status update
+            status_msg = {
+                "type": "status_update",
+                "data": {
+                    "status": self.training_status,
+                    "message": "Training started"
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            try:
+                await self.broadcast_training_update(status_msg)
+                logger.info("✅ Training status update broadcasted successfully")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast training status update: {e}")
+            
             # Start monitoring thread for real-time output
             def monitor_output():
                 logger.info("Starting training output monitoring...")
@@ -3454,6 +3530,16 @@ class GANDashboard:
                     else:
                         logger.error(f"❌ Training failed with exit code {return_code}")
                     
+                    # Broadcast status update first
+                    status_msg = {
+                        "type": "status_update",
+                        "data": {
+                            "status": self.training_status,
+                            "message": f"Training {self.training_status}"
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
                     # Broadcast completion status
                     completion_msg = {
                         "type": "training_complete",
@@ -3465,47 +3551,17 @@ class GANDashboard:
                         "timestamp": datetime.now().isoformat()
                     }
                     
-                    try:
-                        # Try multiple approaches to broadcast the completion message
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # Schedule the broadcast on the event loop
-                            future = asyncio.run_coroutine_threadsafe(
-                                self.broadcast_training_update(completion_msg), 
-                                loop
-                            )
-                            # Wait a bit for the broadcast to complete
-                            try:
-                                future.result(timeout=2.0)
-                                logger.info("✅ Training completion broadcasted successfully via SSE")
-                            except Exception as broadcast_error:
-                                logger.warning(f"SSE broadcast failed: {broadcast_error}, using fallback")
-                                raise RuntimeError("SSE broadcast failed")
-                        else:
-                            raise RuntimeError("Event loop not running")
-                    except RuntimeError:
-                        # Fallback: Store the message to be sent when clients reconnect
-                        logger.warning("⚠️ SSE broadcasting failed, storing completion message for later delivery")
-                        self.pending_completion_message = completion_msg
-                        logger.info(f"Dashboard update (completion): {completion_msg}")
-                        
-                        # Try direct broadcast to existing clients as fallback
-                        try:
-                            import json
-                            message = f"data: {json.dumps(completion_msg)}\n\n"
-                            for client in list(self.training_clients):
-                                try:
-                                    client.write(message.encode())
-                                    logger.info("✅ Direct completion message sent to SSE client")
-                                except Exception as client_error:
-                                    logger.warning(f"Failed to send direct message to client: {client_error}")
-                                    self.training_clients.discard(client)
-                        except Exception as fallback_error:
-                            logger.error(f"Fallback direct broadcast also failed: {fallback_error}")
-                    except Exception as e:
-                        logger.error(f"Error broadcasting completion: {e}")
-                        # Store as pending message
-                        self.pending_completion_message = completion_msg
+                    # Store completion status for immediate broadcast and pending delivery
+                    self.training_status = "completed" if return_code == 0 else "failed"
+                    self.pending_completion_message = completion_msg
+                    self.pending_status_message = status_msg
+                    
+                    logger.info(f"Dashboard update (status): {status_msg}")
+                    logger.info(f"Dashboard update (completion): {completion_msg}")
+                    
+                    # The status will be broadcast via the main event loop when SSE clients connect
+                    # or when the main thread checks for pending messages
+
             
             # Start monitoring in a separate thread
             monitor_thread = threading.Thread(target=monitor_output, daemon=True)
@@ -3739,26 +3795,45 @@ class GANDashboard:
             })
     
     async def stop_training(self, request):
-        """Stop GAN training."""
+        """Stop the current training process."""
         try:
-            if self.training_process:
+            if self.training_process and self.training_process.poll() is None:
+                logger.info("Stopping training process...")
                 self.training_process.terminate()
-                self.training_process.wait(timeout=5)
-                self.training_process = None
-            
-            self.training_status = "stopped"
-            return web.json_response({"success": True, "message": "Training stopped"})
-            
+                
+                # Wait a moment for graceful termination
+                try:
+                    self.training_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Training process didn't terminate gracefully, forcing kill...")
+                    self.training_process.kill()
+                
+                self.training_status = "stopped"
+                logger.info("Training process stopped successfully")
+                
+                # Broadcast status update
+                status_msg = {
+                    "type": "status_update",
+                    "data": {
+                        "status": self.training_status,
+                        "message": "Training stopped by user"
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                try:
+                    await self.broadcast_training_update(status_msg)
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast training stop status update: {e}")
+                
+                return web.json_response({"success": True, "message": "Training stopped"})
+            else:
+                return web.json_response({"success": False, "message": "No training process running"})
         except Exception as e:
             logger.error(f"Error stopping training: {e}")
             return web.json_response({"success": False, "error": str(e)})
     
-    async def get_training_status(self, request):
-        """Get current training status."""
-        return web.json_response({
-            "status": self.training_status,
-            "metrics": self.training_metrics
-        })
+    # Removed get_training_status method - Training status is now only available via SSE
     
     async def get_models(self, request):
         """Get available model checkpoints."""
@@ -4267,12 +4342,30 @@ class GANDashboard:
             }
             await response.write(f"data: {json.dumps(status_msg)}\n\n".encode())
             
+            # Send pending status message if available  
+            if hasattr(self, 'pending_status_message') and self.pending_status_message:
+                logger.info("📤 Sending pending status message to new client")
+                await response.write(f"data: {json.dumps(self.pending_status_message)}\n\n".encode())
+                
+            # If training is completed/failed but no pending message, send current status
+            elif self.training_status in ['completed', 'failed']:
+                current_status_msg = {
+                    'type': 'status_update',
+                    'data': {
+                        'status': self.training_status,
+                        'message': f'Training {self.training_status}'
+                    },
+                    'timestamp': datetime.now().isoformat()
+                }
+                logger.info(f"📤 Sending current training status to new client: {self.training_status}")
+                await response.write(f"data: {json.dumps(current_status_msg)}\n\n".encode())
+            
             # Send pending completion message if available
             if self.pending_completion_message:
                 logger.info("📤 Sending pending completion message to new client")
                 await response.write(f"data: {json.dumps(self.pending_completion_message)}\n\n".encode())
-                # Clear the pending message after sending
-                self.pending_completion_message = None
+                
+            # Don't clear pending messages immediately - they might be needed for other clients
             
             # Send historical training data
             historical_data = self.load_historical_logs()
@@ -4555,6 +4648,28 @@ class GANDashboard:
         if clients_to_remove:
             logger.info(f"📊 Log broadcast completed. Removed {len(clients_to_remove)} clients. Active: {len(self.log_clients)}")
     
+    async def broadcast_pending_messages_periodically(self):
+        """Periodically broadcast pending status and completion messages to connected clients."""
+        while True:
+            try:
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+                # Broadcast pending status message
+                if hasattr(self, 'pending_status_message') and self.pending_status_message and self.training_clients:
+                    logger.info("📤 Broadcasting pending status message to connected clients")
+                    await self.broadcast_training_update(self.pending_status_message)
+                    self.pending_status_message = None  # Clear after broadcasting
+                
+                # Broadcast pending completion message  
+                if self.pending_completion_message and self.training_clients:
+                    logger.info("📤 Broadcasting pending completion message to connected clients")
+                    await self.broadcast_training_update(self.pending_completion_message)
+                    self.pending_completion_message = None  # Clear after broadcasting
+                    
+            except Exception as e:
+                logger.error(f"Error in periodic broadcast: {e}")
+                await asyncio.sleep(5)  # Wait longer if there's an error
+    
     async def start(self):
         """Start the dashboard server."""
         self.runner = web.AppRunner(self.app)
@@ -4637,6 +4752,55 @@ class GANDashboard:
         with open('test_sse_simple.html', 'r') as f:
             html_content = f.read()
         return web.Response(text=html_content, content_type='text/html')
+    
+    async def test_status_fix(self, request):
+        """Test page for training status updates."""
+        try:
+            with open('test_status_fix.html', 'r') as f:
+                html_content = f.read()
+            return web.Response(text=html_content, content_type='text/html')
+        except FileNotFoundError:
+            return web.Response(text="Test file not found", status=404)
+
+    async def test_training_completion(self, request):
+        """Test page for training completion status updates."""
+        try:
+            with open('test_training_completion_ui.html', 'r') as f:
+                html_content = f.read()
+            return web.Response(text=html_content, content_type='text/html')
+        except FileNotFoundError:
+            return web.Response(text="Test file not found", status=404)
+
+    async def test_training_complete_event(self, request):
+        """Test endpoint to manually trigger a training_complete event."""
+        try:
+            # Create a test training_complete message
+            completion_msg = {
+                "type": "training_complete",
+                "data": {
+                    "status": "completed",
+                    "return_code": 0,
+                    "message": "Training completed successfully (test event)"
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Broadcast the test completion message
+            await self.broadcast_training_update(completion_msg)
+            
+            logger.info("🧪 Test training_complete event sent via SSE")
+            return web.json_response({
+                "success": True,
+                "message": "Test training_complete event sent",
+                "event": completion_msg
+            })
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending test training_complete event: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e)
+            }, status=500)
 
 async def main():
     """Main function."""

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Training Status Updates</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { font-size: 24px; font-weight: bold; margin: 20px 0; }
+        .completed { color: green; }
+        .failed { color: red; }
+        .running { color: blue; }
+        .stopped { color: gray; }
+        .idle { color: black; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Training Status Updates</h1>
+    
+    <div>
+        <h2>Current Status: <span id="status-text" class="status idle">Idle</span></h2>
+        <p id="status-message">Waiting for status updates...</p>
+    </div>
+    
+    <div>
+        <button onclick="startTraining()">Start Training</button>
+        <button onclick="stopTraining()">Stop Training</button>
+    </div>
+    
+    <div>
+        <h3>Event Log:</h3>
+        <div id="event-log" class="log"></div>
+    </div>
+    
+    <script>
+        let trainingEventSource = null;
+        let progressEventSource = null;
+        
+        function logEvent(message, type = 'info') {
+            const log = document.getElementById('event-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            entry.style.color = type === 'error' ? 'red' : type === 'success' ? 'green' : 'black';
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function updateStatus(status, message) {
+            const statusText = document.getElementById('status-text');
+            const statusMessage = document.getElementById('status-message');
+            
+            statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            statusMessage.textContent = message;
+            
+            // Update status color
+            statusText.className = 'status ' + status;
+            
+            logEvent(`Status updated to: ${status} - ${message}`, 'success');
+        }
+        
+        function connectTrainingChannel() {
+            if (trainingEventSource) {
+                trainingEventSource.close();
+            }
+            
+            logEvent('🎯 Connecting to training channel...');
+            
+            try {
+                trainingEventSource = new EventSource('/events/training');
+                
+                trainingEventSource.onopen = function() {
+                    logEvent('✅ Connected to Training SSE Channel', 'success');
+                };
+                
+                trainingEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        logEvent(`📡 Training data: ${data.type}`, 'info');
+                        
+                        if (data.type === 'status_update') {
+                            logEvent(`🎯 Status update: ${data.data.status}`, 'success');
+                            updateStatus(data.data.status, data.data.message);
+                        } else if (data.type === 'training_complete') {
+                            logEvent(`✅ Training completed: ${data.data.status}`, 'success');
+                            updateStatus(data.data.status, data.data.message);
+                        } else if (data.type === 'connection') {
+                            logEvent(`🔗 ${data.message}`, 'info');
+                        }
+                    } catch (error) {
+                        logEvent(`❌ Error parsing training data: ${error}`, 'error');
+                    }
+                };
+                
+                trainingEventSource.onerror = function(error) {
+                    logEvent(`❌ Training channel error: ${error}`, 'error');
+                };
+                
+            } catch (error) {
+                logEvent(`❌ Error creating training EventSource: ${error}`, 'error');
+            }
+        }
+        
+        function connectProgressChannel() {
+            if (progressEventSource) {
+                progressEventSource.close();
+            }
+            
+            logEvent('📊 Connecting to progress channel...');
+            
+            try {
+                progressEventSource = new EventSource('/events/progress');
+                
+                progressEventSource.onopen = function() {
+                    logEvent('✅ Connected to Progress SSE Channel', 'success');
+                };
+                
+                progressEventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        logEvent(`📊 Progress data: ${data.type}`, 'info');
+                    } catch (error) {
+                        logEvent(`❌ Error parsing progress data: ${error}`, 'error');
+                    }
+                };
+                
+                progressEventSource.onerror = function(error) {
+                    logEvent(`❌ Progress channel error: ${error}`, 'error');
+                };
+                
+            } catch (error) {
+                logEvent(`❌ Error creating progress EventSource: ${error}`, 'error');
+            }
+        }
+        
+        async function startTraining() {
+            logEvent('🚀 Starting training...', 'info');
+            
+            try {
+                const response = await fetch('/start_training', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        config: 'config/gan_config.yaml',
+                        data_source: 'treasury_orderbook_sample.csv',
+                        epochs: 2
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    logEvent('✅ Training started successfully', 'success');
+                } else {
+                    logEvent(`❌ Failed to start training: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logEvent(`❌ Error starting training: ${error}`, 'error');
+            }
+        }
+        
+        async function stopTraining() {
+            logEvent('🛑 Stopping training...', 'info');
+            
+            try {
+                const response = await fetch('/stop_training', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    logEvent('✅ Training stopped successfully', 'success');
+                } else {
+                    logEvent(`❌ Failed to stop training: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logEvent(`❌ Error stopping training: ${error}`, 'error');
+            }
+        }
+        
+        // Connect to channels when page loads
+        window.onload = function() {
+            logEvent('🌐 Page loaded, connecting to SSE channels...', 'info');
+            connectTrainingChannel();
+            connectProgressChannel();
+        };
+    </script>
+</body>
+</html> 

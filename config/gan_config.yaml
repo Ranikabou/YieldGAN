@@ -1,8 +1,8 @@
 dashboard:
   auto_detected: true
   auto_detection: true
-  port: 8086
-  url: http://localhost:8086
+  port: 8082
+  url: http://localhost:8082
 data_processing:
   batch_size: 16
   num_features: 21

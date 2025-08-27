@@ -121,21 +121,15 @@ class DashboardHealthMonitor:
         return healthy_connections
         
     async def check_training_status(self):
-        """Check current training status."""
+        """Check training status via SSE (REST endpoint removed)."""
         try:
-            async with self.session.get(f"{self.dashboard_url}/api/training_status") as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self.health_metrics['last_training_status'] = data
-                    logger.info(f"📊 Training Status: {data.get('status', 'Unknown')}")
-                    return data
-                else:
-                    logger.error(f"❌ Failed to get training status: {response.status}")
-                    return None
-                    
+            # Training status is now only available via SSE
+            self.health_metrics['last_training_status'] = {'status': 'Available via SSE only'}
+            logger.info("🎯 Training status available via SSE channels")
+            return True
         except Exception as e:
             logger.error(f"❌ Error checking training status: {e}")
-            return None
+            return False
             
     def calculate_health_score(self):
         """Calculate overall health score (0-100)."""
@@ -229,7 +223,7 @@ class DashboardHealthMonitor:
                 
                 # Check all endpoints
                 await self.check_endpoint_health('/', 'Main Dashboard')
-                await self.check_endpoint_health('/api/training_status', 'Training Status API')
+                # Training Status API removed - now available via SSE only
                 
                 # Check SSE connections
                 await self.check_sse_connections()

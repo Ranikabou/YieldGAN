@@ -2095,39 +2095,7 @@ class GANDashboard:
                             overallProgressSection.style.display = 'none';
                         }
                         
-                        // Show completion info
-                        const completionInfo = document.createElement('div');
-                        completionInfo.className = `mt-4 p-4 ${data.data.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} rounded-lg border`;
-                        completionInfo.innerHTML = `
-                            <h4 class="text-md font-medium ${data.data.status === 'completed' ? 'text-green-700' : 'text-red-700'} mb-2">
-                                ${data.data.status === 'completed' ? '✅ Training Completed' : '❌ Training Failed'}
-                            </h4>
-                            <div class="text-sm ${data.data.status === 'completed' ? 'text-green-600' : 'text-red-600'}">
-                                <p><strong>Message:</strong> ${data.data.message}</p>
-                                <p><strong>Return Code:</strong> ${data.data.return_code}</p>
-                                <p><strong>Time:</strong> ${new Date(data.timestamp).toLocaleTimeString()}</p>
-                            </div>
-                        `;
-                        
-                        // Remove existing completion info if any
-                        const existingCompletion = document.querySelector('.bg-green-50, .bg-red-50');
-                        if (existingCompletion && existingCompletion !== document.querySelector('.bg-blue-50')) {
-                            existingCompletion.remove();
-                        }
-                        
-                        // Insert after training controls (with null check)
-                        const trainingControls = document.querySelector('.p-4.bg-blue-50');
-                        if (trainingControls && trainingControls.parentNode) {
-                            trainingControls.parentNode.insertBefore(completionInfo, trainingControls.nextSibling);
-                        } else {
-                            // Fallback: append to main container
-                            const mainContainer = document.querySelector('.max-w-7xl');
-                            if (mainContainer) {
-                                mainContainer.appendChild(completionInfo);
-                            } else {
-                                console.warn('Could not find container to insert completion info');
-                            }
-                        }
+                        // Completion notification banner removed per user request
                         
                     } else if (data.type === 'status_update') {
                         console.log('📊 Status update:', data.data);
@@ -2212,37 +2180,7 @@ class GANDashboard:
                 }
                 
                 // Function to show completion notifications
-                function showCompletionNotification(message, type = 'info') {
-                    // Remove existing notifications
-                    const existingNotifications = document.querySelectorAll('.completion-notification');
-                    existingNotifications.forEach(notification => notification.remove());
-                    
-                    // Create notification element
-                    const notification = document.createElement('div');
-                    notification.className = `completion-notification fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 max-w-sm ${
-                        type === 'success' ? 'bg-green-500 text-white' : 
-                        type === 'error' ? 'bg-red-500 text-white' : 
-                        'bg-blue-500 text-white'
-                    }`;
-                    
-                    notification.innerHTML = `
-                        <div class="flex items-center">
-                            <span class="mr-2">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
-                            <span class="font-medium">${message}</span>
-                            <button onclick="this.parentElement.parentElement.remove()" class="ml-auto text-white hover:text-gray-200">×</button>
-                        </div>
-                    `;
-                    
-                    // Add to page
-                    document.body.appendChild(notification);
-                    
-                    // Auto-remove after 5 seconds
-                    setTimeout(() => {
-                        if (notification.parentElement) {
-                            notification.remove();
-                        }
-                    }, 5000);
-                }
+                // showCompletionNotification function removed per user request
                 
                 // Connect to all channels on page load
                 window.addEventListener('load', function() {
@@ -2416,7 +2354,7 @@ class GANDashboard:
                         
                         if (result.success) {
                             // Show success notification
-                            showCompletionNotification(`✅ Sample generated successfully! ${result.summary.total_records} records created.`, 'success');
+                            // Completion notification removed per user request
                             
                             // Automatically select the generated sample as data source
                             if (result.filename) {
@@ -2435,11 +2373,11 @@ class GANDashboard:
                                 }
                             }
                         } else {
-                            showCompletionNotification(`❌ Failed to generate sample: ${result.error}`, 'error');
+                            // Error notification removed per user request
                         }
                     } catch (error) {
                         console.error('Error generating sample:', error);
-                        showCompletionNotification(`❌ Error generating sample: ${error.message}`, 'error');
+                                                    // Error notification removed per user request
                     } finally {
                         // Restore button state
                         const generateBtn = document.getElementById('generate-sample');
